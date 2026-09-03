@@ -1,0 +1,97 @@
+{{ define "main" }}
+{{- $p := .Params -}}
+{{- $links := site.Params.links -}}
+
+<section class="container hero" aria-labelledby="hero-title">
+  <p class="definition serif">{{ $p.hero.term }}, <span class="pos">{{ $p.hero.pos }}</span> · {{ $p.hero.gloss }}</p>
+  <h1 id="hero-title" class="serif">{{ $p.hero.heading }}</h1>
+  <p class="hero-sub">{{ $p.hero.sub }}</p>
+</section>
+<div class="rule" aria-hidden="true"></div>
+
+<section id="games" class="container band band--games" aria-labelledby="game-title">
+  <div class="stack">
+    <p class="label">{{ $p.game.label }}</p>
+    <h2 id="game-title" class="serif display display--game">{{ $p.game.title }}</h2>
+    <p class="meta">{{ $p.game.meta }}</p>
+    <p class="pitch">{{ $p.game.pitch }}</p>
+  </div>
+  <div class="game-media">
+    {{/* KEY ART GOES HERE. The nebula is a stand-in: put the real image in assets/images/,
+         then set game.image (path under assets/) and game.image_alt in content/_index.md.
+         The frame is 4:3 (see .game-media img in assets/css/main.css); Hugo crops the centre
+         to 4:3 and emits 800- and 1067-wide JPEG and WebP variants. The social-card image
+         in partials/head.html is derived from the same file. */}}
+    {{- $src := resources.Get $p.game.image }}
+    {{- if not $src }}{{ errorf "game.image %q not found under assets/" $p.game.image }}{{ end }}
+    {{- $l := $src.Fill "1067x800 Center q78" }}
+    {{- $s := $src.Fill "800x600 Center q78" }}
+    {{- $lw := $src.Fill "1067x800 Center webp q78" }}
+    {{- $sw := $src.Fill "800x600 Center webp q78" }}
+    {{/* The clamp() is --pad from assets/css/main.css, repeated because `sizes` cannot read
+         custom properties; change both together. 658px is the 7/12 column of the 1200px
+         container at its widest ((1200 - 72) * 7 / 12); between 1101 and 1440 it is smaller,
+         and erring large only ever picks the larger candidate. */}}
+    {{- $sizes := "(max-width: 1100px) calc(100vw - 2 * clamp(24px, 9.15vw - 11.7px, 120px)), 658px" }}
+    <picture>
+      <source type="image/webp" srcset="{{ $sw.RelPermalink }} 800w, {{ $lw.RelPermalink }} 1067w" sizes="{{ $sizes }}">
+      <img src="{{ $l.RelPermalink }}" srcset="{{ $s.RelPermalink }} 800w, {{ $l.RelPermalink }} 1067w" sizes="{{ $sizes }}" width="{{ $l.Width }}" height="{{ $l.Height }}" alt="{{ $p.game.image_alt }}" decoding="async">
+    </picture>
+  </div>
+</section>
+<div class="rule" aria-hidden="true"></div>
+
+<section id="sound" class="container band band--sound" aria-labelledby="sound-title">
+  <div class="stack">
+    <p class="label">{{ $p.sound.label }}</p>
+    <h2 id="sound-title" class="serif display display--sound">{{ $p.sound.title }}</h2>
+    <p class="blurb">{{ $p.sound.blurb }}</p>
+    <ul class="releases" role="list">
+      {{- range hugo.Data.releases }}
+      <li class="rel">
+        <span class="rel-title serif">{{ .title }}</span>
+        <span class="rel-kind">{{ .kind }} · {{ .year }}</span>
+        <span class="rel-links">
+          {{- with .spotify }}<a href="{{ . }}" rel="noopener">Spotify</a>{{ end }}
+          {{ with .apple }}<a href="{{ . }}" rel="noopener">Apple Music</a>{{ end -}}
+        </span>
+      </li>
+      {{- end }}
+    </ul>
+  </div>
+
+  <section id="live" class="panel stack" aria-labelledby="live-title">
+    <h2 id="live-title" class="label">{{ $p.live.label }}</h2>
+    <p class="serif lede lede--live">{{ $p.live.text }}</p>
+    {{- with hugo.Data.live.dates }}
+    <ul class="dates" role="list">
+      {{- range . }}
+      <li class="date">
+        <time datetime="{{ time.Format "2006-01-02" .date }}">{{ time.Format "Mon 2 Jan 2006" .date }}</time>
+        <span>{{ .venue }}, {{ .city }}</span>
+        <span class="date-tickets">{{ with .tickets }}<a href="{{ . }}" rel="noopener">Tickets</a>{{ end }}</span>
+      </li>
+      {{- end }}
+    </ul>
+    {{- else }}
+    <p class="dates-empty">{{ $p.live.empty }}</p>
+    {{- end }}
+    <p class="booking">{{ $p.live.booking }}: <a href="mailto:{{ site.Params.email }}">{{ site.Params.email }}</a></p>
+  </section>
+</section>
+<div class="rule rule--after-sound" aria-hidden="true"></div>
+
+<section id="about" class="container band band--about" aria-labelledby="about-title">
+  <div class="stack">
+    <h2 id="about-title" class="label">{{ $p.about.label }}</h2>
+    <p class="serif lede lede--about">{{ $p.about.text }}</p>
+  </div>
+  <dl class="contact">
+    <div><dt>{{ $p.about.rows.email }}</dt><dd><a href="mailto:{{ site.Params.email }}">{{ site.Params.email }}</a></dd></div>
+    <div><dt>{{ $p.about.rows.code }}</dt><dd><a href="{{ $links.github }}" rel="noopener">GitHub</a></dd></div>
+    <div><dt>{{ $p.about.rows.work }}</dt><dd><a href="{{ $links.linkedin }}" rel="noopener">LinkedIn</a></dd></div>
+    <div><dt>{{ $p.about.rows.listen }}</dt><dd class="contact-links"><a href="{{ $links.spotify }}" rel="noopener">Spotify</a> {{ with $links.apple }}<a href="{{ . }}" rel="noopener">Apple Music</a>{{ end }}</dd></div>
+  </dl>
+</section>
+<div class="rule" aria-hidden="true"></div>
+{{ end }}

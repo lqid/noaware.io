@@ -1,0 +1,10 @@
+# Live dates, shown in this order. An empty list renders "No dates yet."
+# date: YYYY-MM-DD (shown as "Sat 14 Nov 2026"). tickets: URL, or leave empty for no link.
+dates: []
+
+# Example:
+# dates:
+#   - date: 2026-11-14
+#     venue: "The Venue"
+#     city: "Melbourne"
+#     tickets: "https://example.com/tickets"

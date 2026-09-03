@@ -1,0 +1,47 @@
+{{- $title := site.Title -}}
+{{- if not .IsHome }}{{ $title = printf "%s · %s" (cond (eq .Kind "404") "Not found" .Title) site.Title }}{{ end -}}
+{{- $desc := .Description | default site.Params.description -}}
+{{- $css := resources.Get "css/main.css" | minify | fingerprint -}}
+{{/* Social-card image: the full game key art from content/_index.md, published uncropped at
+     the same path under /images/ (today /images/nebula.jpg) so the card URL is stable. */}}
+{{- $g := site.Home.Params.game -}}
+{{- $src := resources.Get $g.image -}}
+{{- if not $src }}{{ errorf "game.image %q not found under assets/" $g.image }}{{ end -}}
+{{- $image := resources.Copy $g.image $src -}}
+<meta charset="utf-8">
+{{/* The page has no inline styles or scripts and makes no third-party requests; this keeps it
+     that way (GitHub Pages cannot set headers, so it is a meta tag). Loosen it deliberately if
+     an inline style or an embed is ever added. Skipped under `hugo server`: its injected
+     livereload script needs a WebSocket that default-src 'none' would refuse. */}}
+{{- if not hugo.IsServer }}
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+{{- end }}
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ $title }}</title>
+<meta name="description" content="{{ $desc }}">
+<meta name="theme-color" content="#F3EFE7">
+{{- if .IsHome }}
+<link rel="canonical" href="{{ .Permalink }}">
+{{- else }}
+<meta name="robots" content="noindex">
+{{- end }}
+<link rel="icon" href="{{ "favicon.svg" | relURL }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ "apple-touch-icon.png" | relURL }}">
+<link rel="preload" href="{{ "fonts/instrument-sans-normal-latin.woff2" | relURL }}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{ "fonts/cormorant-garamond-normal-latin.woff2" | relURL }}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{{ site.Title }}">
+<meta property="og:title" content="{{ $title }}">
+<meta property="og:description" content="{{ $desc }}">
+<meta property="og:url" content="{{ site.BaseURL }}">
+<meta property="og:locale" content="en_AU">
+<meta property="og:image" content="{{ $image.Permalink }}">
+<meta property="og:image:width" content="{{ $image.Width }}">
+<meta property="og:image:height" content="{{ $image.Height }}">
+<meta property="og:image:alt" content="{{ $g.image_alt }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ $title }}">
+<meta name="twitter:description" content="{{ $desc }}">
+<meta name="twitter:image" content="{{ $image.Permalink }}">
+<meta name="twitter:image:alt" content="{{ $g.image_alt }}">

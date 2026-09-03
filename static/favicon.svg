@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <style>
+    .ink { color: #1F1B17; }
+    @media (prefers-color-scheme: dark) { .ink { color: #F3EFE7; } }
+  </style>
+  <rect class="ink" x="3" y="3" width="58" height="58" fill="none" stroke="currentColor" stroke-width="4"/>
+  <text class="ink" x="32" y="33" text-anchor="middle" dominant-baseline="central" font-family="Cormorant Garamond, Georgia, serif" font-weight="500" font-size="44" fill="currentColor">M</text>
+</svg>

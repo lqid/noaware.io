@@ -1,0 +1,33 @@
+baseURL = "https://noaware.io/"
+# Hugo 0.158+ replaced languageCode with locale (languageCode now logs a deprecation
+# warning, and the build must stay warning-free).
+locale = "en-au"
+title = "Mono No Aware Studios"
+enableRobotsTXT = true
+disableHugoGeneratorInject = true
+disableKinds = ["taxonomy", "term", "RSS"]
+
+[params]
+  description = "Mono No Aware Studios: games and music about the things that don't last. An independent studio in Melbourne, Australia."
+  email = "daniel@noaware.io"
+
+  [params.links]
+    github = "https://github.com/lqid"
+    linkedin = "https://www.linkedin.com/in/kleviansky/"
+    spotify = "https://open.spotify.com/artist/33gK9iubv5jGA9Gg27wIkY"
+    # Artist-page URLs not known yet.
+    # apple: shown in the About > Listen row when set. deezer: stored for later, not rendered yet.
+    apple = ""
+    deezer = ""
+
+[minify]
+  disableXML = true
+  [minify.tdewolff.html]
+    keepComments = false
+    keepDefaultAttrVals = true
+    keepDocumentTags = true
+    keepEndTags = true
+    keepQuotes = true
+    keepWhitespace = false
+  [minify.tdewolff.css]
+    precision = 0
