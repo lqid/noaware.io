@@ -224,24 +224,25 @@ main:focus { outline: none; }
   max-width: 520px;
   margin-bottom: 8px;
 }
-/* The design's 120px kind and 200px links tracks; the title keeps the rest. The links track is
+/* The kind track is content-sized (the design's 120px cost the longest title its single line
+   once the art column arrived) and the links track is 200px; the title keeps the rest. The links track is
    fit-content so it collapses while every release URL is empty and the title gets the room.
    As with .dates, the list is one grid and each row a subgrid, so the tracks are sized once
    across all rows and the kind column stays aligned whichever rows have links. Browsers
    without subgrid get the same tracks per row. */
 .releases {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 120px fit-content(200px);
-  column-gap: 24px;
+  grid-template-columns: 56px minmax(0, 1fr) max-content fit-content(200px);
+  column-gap: 20px;
   border-bottom: 1px solid var(--hairline);
 }
 .rel {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: 56px minmax(0, 1fr) 120px fit-content(200px);
+  grid-template-columns: 56px minmax(0, 1fr) max-content fit-content(200px);
   grid-template-areas: "a t k l";
   align-items: baseline;
-  gap: 24px;
+  gap: 20px;
   padding: 14px 0;
   border-top: 1px solid var(--hairline);
 }
