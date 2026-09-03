@@ -231,19 +231,37 @@ main:focus { outline: none; }
    without subgrid get the same tracks per row. */
 .releases {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px fit-content(200px);
+  grid-template-columns: 56px minmax(0, 1fr) 120px fit-content(200px);
   column-gap: 24px;
   border-bottom: 1px solid var(--hairline);
 }
 .rel {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) 120px fit-content(200px);
-  grid-template-areas: "t k l";
+  grid-template-columns: 56px minmax(0, 1fr) 120px fit-content(200px);
+  grid-template-areas: "a t k l";
   align-items: baseline;
   gap: 24px;
-  padding: 18px 0;
+  padding: 14px 0;
   border-top: 1px solid var(--hairline);
+}
+/* Cover art: a hairline-bordered square, centred on the row, the same rule colour as the
+   row separators so the mixed artwork reads as one set. */
+.rel-art {
+  grid-area: a;
+  align-self: center;
+  display: block;
+  width: 56px;
+  height: 56px;
+  line-height: 0;
+}
+.rel-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border: 1px solid var(--hairline);
+  box-sizing: border-box;
+  display: block;
 }
 @supports (grid-template-columns: subgrid) {
   .rel { grid-template-columns: subgrid; }
@@ -350,13 +368,14 @@ main:focus { outline: none; }
   .band--games .label { margin-top: 8px; }
   .meta { line-height: 1.6; }
 
-  .releases { grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; }
+  .releases { grid-template-columns: 48px minmax(0, 1fr) auto; column-gap: 16px; }
   .rel {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "t l" "k l";
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    grid-template-areas: "a t l" "a k l";
     align-items: start;
     gap: 2px 16px;
   }
+  .rel-art { grid-row: 1 / span 2; width: 48px; height: 48px; }
   @supports (grid-template-columns: subgrid) {
     .rel { grid-template-columns: subgrid; }
   }

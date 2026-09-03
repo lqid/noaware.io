@@ -49,12 +49,19 @@
     <ul class="releases" role="list">
       {{- /* Newest first. Change "desc" to "asc" for oldest first. */}}
       {{- range sort hugo.Data.releases "released" "desc" }}
+      {{- $r := . }}
       <li class="rel">
-        <span class="rel-title serif">{{ .title }}</span>
-        <span class="rel-kind">{{ .kind }} · {{ substr .released 0 4 }}</span>
+        {{- /* Cover art, 56px (48px on phones), served at 2x and 3x. Decorative: the title sits
+               beside it, so it is hidden from assistive tech and, when linked, skipped by Tab. */}}
+        {{- with $r.image }}{{ with resources.Get . }}
+        {{- $a2 := .Fill "112x112 webp q85" }}{{ $a3 := .Fill "168x168 webp q85" }}
+        {{- if $r.spotify }}<a class="rel-art" href="{{ $r.spotify }}" rel="noopener" tabindex="-1" aria-hidden="true">{{ else }}<span class="rel-art">{{ end }}<img src="{{ $a2.RelPermalink }}" srcset="{{ $a2.RelPermalink }} 2x, {{ $a3.RelPermalink }} 3x" width="56" height="56" alt="" loading="lazy" decoding="async">{{ if $r.spotify }}</a>{{ else }}</span>{{ end }}
+        {{- else }}{{ errorf "release image %q not found under assets/" $r.image }}{{ end }}{{ end }}
+        <span class="rel-title serif">{{ $r.title }}</span>
+        <span class="rel-kind">{{ $r.kind }} · {{ substr $r.released 0 4 }}</span>
         <span class="rel-links">
-          {{- with .spotify }}<a href="{{ . }}" rel="noopener">Spotify</a>{{ end }}
-          {{ with .apple }}<a href="{{ . }}" rel="noopener">Apple Music</a>{{ end -}}
+          {{- with $r.spotify }}<a href="{{ . }}" rel="noopener">Spotify</a>{{ end }}
+          {{ with $r.apple }}<a href="{{ . }}" rel="noopener">Apple Music</a>{{ end -}}
         </span>
       </li>
       {{- end }}

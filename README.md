@@ -25,6 +25,7 @@ Then open <http://localhost:1313>. A production build is `hugo --minify`; it wri
 | Layouts | `layouts/` (`_default/baseof.html`, `index.html`, `404.html`, `partials/`) |
 | Styles | `assets/css/main.css` (tokens are CSS custom properties at the top) |
 | Game image (key art) | `assets/images/` (Hugo crops and resizes it at build time) |
+| Cover art for releases | `assets/images/releases/` (square sources; thumbnails are made at build time) |
 | Fonts, favicon, redirects | `static/` |
 
 ### Add a live date
@@ -45,10 +46,13 @@ dates:
 
 Add an entry to `data/releases.yaml`. The site sorts the list newest first by `released`
 (the year shown comes from it), so position in the file does not matter. `spotify` and `apple`
-are per-release URLs and each link is only shown when its URL is filled in.
+are per-release URLs and each link is only shown when its URL is filled in. `image` is the
+cover art: put a square image (600 px is plenty) in `assets/images/releases/` and give the path
+relative to `assets/`; Hugo makes the thumbnails. Leave `image` out for a row with no art.
 
 ```yaml
 - title: "New Single"
+  image: "images/releases/new-single.jpg"
   kind: Single
   released: "2027-03-05"
   spotify: "https://open.spotify.com/album/..."
