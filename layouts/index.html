@@ -47,10 +47,11 @@
     <h2 id="sound-title" class="serif display display--sound">{{ $p.sound.title }}</h2>
     <p class="blurb">{{ $p.sound.blurb }}</p>
     <ul class="releases" role="list">
-      {{- range hugo.Data.releases }}
+      {{- /* Newest first. Change "desc" to "asc" for oldest first. */}}
+      {{- range sort hugo.Data.releases "released" "desc" }}
       <li class="rel">
         <span class="rel-title serif">{{ .title }}</span>
-        <span class="rel-kind">{{ .kind }} · {{ .year }}</span>
+        <span class="rel-kind">{{ .kind }} · {{ substr .released 0 4 }}</span>
         <span class="rel-links">
           {{- with .spotify }}<a href="{{ . }}" rel="noopener">Spotify</a>{{ end }}
           {{ with .apple }}<a href="{{ . }}" rel="noopener">Apple Music</a>{{ end -}}

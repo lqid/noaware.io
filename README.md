@@ -43,13 +43,14 @@ dates:
 
 ### Add a release
 
-Add an entry to `data/releases.yaml`; the list is shown in file order. `spotify` and `apple`
+Add an entry to `data/releases.yaml`. The site sorts the list newest first by `released`
+(the year shown comes from it), so position in the file does not matter. `spotify` and `apple`
 are per-release URLs and each link is only shown when its URL is filled in.
 
 ```yaml
 - title: "New Single"
   kind: Single
-  year: 2027
+  released: "2027-03-05"
   spotify: "https://open.spotify.com/album/..."
   apple: ""
 ```
@@ -63,10 +64,10 @@ Open Graph / Twitter card image and alt text come from the same settings: the fu
 source is published at the same path under `/images/` (today `/images/nebula.jpg`), so keep it
 under about 300 KB and nothing else needs editing. The current nebula is a placeholder.
 
-### Apple Music and Deezer
+### Profile links
 
-The artist-page URLs in `hugo.toml` (`params.links.apple`, `params.links.deezer`) are empty.
-Fill in `apple` and the "Apple Music" link appears in the About contact rows.
+The About section's contact rows read `params.links` in `hugo.toml` (GitHub, LinkedIn, and the
+Spotify and Apple Music artist pages). The email address is `params.email`.
 
 ## Fonts
 

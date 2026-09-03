@@ -1,37 +1,38 @@
-# Releases, shown in this order. Released as Daniel Kleviansky.
-# spotify / apple: per-release URLs. Leave empty to hide that link; fill in to show it.
-- title: "At Once, Grace."
-  kind: Album
-  year: 2020
-  spotify: ""
-  apple: ""
+# Releases by Daniel Kleviansky. The site sorts these newest first by `released`
+# (YYYY-MM-DD, quoted), so the order in this file does not matter. The year shown on the
+# site comes from `released`. Leave a link empty to hide it.
 - title: "Epoché"
   kind: Single
-  year: 2022
-  spotify: ""
-  apple: ""
+  released: "2022-09-16"
+  spotify: "https://open.spotify.com/album/47vZzPCXvlvaEeyWDeeoVr"
+  apple: "https://music.apple.com/au/album/epoch%C3%A9-single/1639236307"
 - title: "O Beauty, Where Art Thou?"
   kind: Single
-  year: 2022
-  spotify: ""
-  apple: ""
+  released: "2022-06-13"
+  spotify: "https://open.spotify.com/album/4RoAZZ0GQ1FcpgKG7CQiId"
+  apple: "https://music.apple.com/au/album/o-beauty-where-art-thou-single/1622724768"
 - title: "Jacob"
   kind: Single
-  year: 2022
-  spotify: ""
-  apple: ""
-- title: "Here. Now."
-  kind: Single
-  year: 2020
-  spotify: ""
-  apple: ""
-- title: "Wavering Confidence"
-  kind: Single
-  year: 2020
-  spotify: ""
-  apple: ""
+  released: "2022-05-13"
+  spotify: "https://open.spotify.com/album/1ceSmETc30tAD92tppiAxI"
+  apple: "https://music.apple.com/au/album/jacob-single/1622271677"
+- title: "At Once, Grace."
+  kind: Album
+  released: "2020-11-06"
+  spotify: "https://open.spotify.com/album/49mGgC27dDng4UFQrDoBLO"
+  apple: "https://music.apple.com/au/album/at-once-grace/1533464874"
 - title: "At Motion"
   kind: Single
-  year: 2020
-  spotify: ""
-  apple: ""
+  released: "2020-07-01"
+  spotify: "https://open.spotify.com/album/3vrHOHVVBjpwogNjtdXr9k"
+  apple: "https://music.apple.com/au/album/at-motion-single/1516989243"
+- title: "Wavering Confidence"
+  kind: Single
+  released: "2020-06-05"
+  spotify: "https://open.spotify.com/album/4I6kddYls8OOSLZbuVGBT2"
+  apple: "https://music.apple.com/au/album/wavering-confidence-single/1511530182"
+- title: "Here. Now."
+  kind: Single
+  released: "2020-04-26"
+  spotify: "https://open.spotify.com/album/0kgMRnJAstub96pZy9pu8i"
+  apple: "https://music.apple.com/au/album/here-now-single/1511054958"

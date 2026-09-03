@@ -28,7 +28,7 @@ game:
 sound:
   label: "02 · Sound"
   title: "Neoclassical, ambient, cinematic."
-  blurb: "Written, recorded and produced in the studio. Released as Daniel Kleviansky on Spotify, Apple Music and Deezer, and played live under the same name."
+  blurb: "Written, recorded and produced in the studio. Released as Daniel Kleviansky on Spotify and Apple Music, and played live under the same name."
 
 live:
   label: "Live"
