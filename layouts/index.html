@@ -4,7 +4,7 @@
 
 <section class="container hero" aria-labelledby="hero-title">
   {{- with $p.hero.line }}
-  <p class="definition serif">{{ . }}</p>
+  <p class="definition serif"{{ with $p.hero.line_lang }} lang="{{ . }}"{{ end }}>{{ . }}</p>
   {{- end }}
   <h1 id="hero-title" class="serif">{{ $p.hero.heading }}</h1>
   <p class="hero-sub">{{ $p.hero.sub }}</p>

@@ -5,8 +5,10 @@ title: "Mono No Aware Studios"
 # contact links, the email address and the meta description in hugo.toml.
 
 hero:
-  # Small italic line above the heading. Leave empty ("") to drop it.
-  line: ""
+  # Small line above the heading. Leave empty ("") to drop it. line_lang sets the language
+  # attribute; "ja" renders upright in a Japanese serif instead of italic.
+  line: "物の哀れ"
+  line_lang: "ja"
   heading: "Mono No Aware Studios makes games and music in Melbourne."
   sub: "Hold Tight, a narrative puzzle game, is in development on Unreal Engine 5. The music is out on Spotify and Apple Music."
 
