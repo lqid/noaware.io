@@ -116,8 +116,7 @@
   </div>
   <dl class="contact">
     <div><dt>{{ $p.about.rows.email }}</dt><dd><a href="mailto:{{ site.Params.email }}">{{ site.Params.email }}</a></dd></div>
-    <div><dt>{{ $p.about.rows.code }}</dt><dd><a href="{{ $links.github }}" rel="noopener">GitHub</a></dd></div>
-    <div><dt>{{ $p.about.rows.work }}</dt><dd><a href="{{ $links.linkedin }}" rel="noopener">LinkedIn</a></dd></div>
+    <div><dt>{{ $p.about.rows.company }}</dt><dd><a href="{{ $links.linkedin }}" rel="noopener">LinkedIn</a></dd></div>
     <div><dt>{{ $p.about.rows.listen }}</dt><dd class="contact-links"><a href="{{ $links.spotify }}" rel="noopener">Spotify</a> {{ with $links.apple }}<a href="{{ . }}" rel="noopener">Apple Music</a>{{ end }}</dd></div>
   </dl>
 </section>

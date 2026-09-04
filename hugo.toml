@@ -12,8 +12,8 @@ disableKinds = ["taxonomy", "term", "RSS"]
   email = "contact@noaware.io"
 
   [params.links]
-    github = "https://github.com/lqid"
-    linkedin = "https://www.linkedin.com/in/kleviansky/"
+    # The studio's LinkedIn Page (not a personal profile).
+    linkedin = "https://www.linkedin.com/company/noaware/"
     spotify = "https://open.spotify.com/artist/33gK9iubv5jGA9Gg27wIkY"
     apple = "https://music.apple.com/au/artist/daniel-kleviansky/1510186994"
 

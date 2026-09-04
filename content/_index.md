@@ -48,13 +48,12 @@ live:
 
 about:
   label: "About"
-  text: "Daniel Kleviansky is director and lead engineer. He spent over a decade on large-scale systems for the Australian federal government (contact centres, voice biometrics). The studio hires people when a project needs them."
+  text: "Mono No Aware Studios was started so that people could find each other through the things they make: a game, a record, a set played in a room. It is made with people, and it is shown to whoever is looking."
   # Optional second paragraph, body size. Leave empty ("") to drop it.
-  more: "The cover art for the music was commissioned from artists, who were paid. A council of AI agents argues about Hold Tight's design and builds none of it."
+  more: "The studio hires the people a project needs and pays them. Outstandly, a game art studio, painted the concept art for Hold Tight, and every record cover was commissioned from an artist. A council of AI agents argues about the game's design. That is all it does."
   rows:
     email: "Email"
-    code: "Code"
-    work: "Work"
+    company: "Company"
     listen: "Listen"
 
 notfound:
