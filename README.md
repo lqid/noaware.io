@@ -67,6 +67,15 @@ build time and the social card uses the same image at its full size, published u
 `/images/`, so keep the source under about 400 KB. The current image is the Terra Incognita
 concept painting for Hold Tight. More concept art goes in `game.gallery` (image and alt text per
 entry); those are shown whole, in order, under the key art, and the credit line covers them all.
+The list is empty on purpose: one image on the front page.
+
+### The Hold Tight page (draft)
+
+`content/hold-tight.md` is a concept-art page for `/hold-tight/`, kept as a draft (`draft: true`)
+so it is not built or published. It holds the world painting and the cabin render; the character
+and puzzle-complex sheets are held back on purpose. To publish it: set `draft: false`, delete
+`static/hold-tight/index.html` (the redirect that stands in for the page), and push. The front
+page's "More concept art" link appears by itself once the page exists.
 
 ### Profile links
 

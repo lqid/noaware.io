@@ -29,6 +29,8 @@ game:
   credit: "Concept art by"
   credit_name: "Outstandly"
   credit_url: "https://outstandly.com/"
+  # Link text after the credit, pointing at the Hold Tight page (content/hold-tight.md).
+  more_text: "More concept art"
   # More concept art, shown whole under the key art in this order (image + alt per entry, paths
   # relative to assets/). Empty on purpose: one image on the front page.
   gallery: []

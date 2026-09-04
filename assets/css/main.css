@@ -242,6 +242,26 @@ main:focus { outline: none; }
 .game-figure { margin: 0; }
 .art-credit { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 
+/* Hold Tight page */
+.hero--page h1 { font-size: clamp(48px, 1.91vw + 40.6px, 68px); line-height: 1.0; }
+.concept {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 3.3vw, 48px);
+  padding-top: clamp(40px, 6.7vw, 96px);
+  padding-bottom: clamp(40px, 6.7vw, 96px);
+}
+.concept-piece { margin: 0; max-width: 1000px; }
+.concept-piece img {
+  display: block;
+  width: 100%;
+  height: auto;
+  box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+}
+.concept-piece figcaption { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+
 /* Sound */
 .blurb {
   font-size: clamp(16px, 0.19vw + 15.3px, 18px);

@@ -52,7 +52,7 @@
     </figure>
     {{- end }}
     {{- with $p.game.credit_name }}
-    <p class="art-credit">{{ $p.game.credit }} {{ with $p.game.credit_url }}<a href="{{ . }}" rel="noopener">{{ $p.game.credit_name }}</a>{{ else }}{{ . }}{{ end }}.</p>
+    <p class="art-credit">{{ $p.game.credit }} {{ with $p.game.credit_url }}<a href="{{ . }}" rel="noopener">{{ $p.game.credit_name }}</a>{{ else }}{{ . }}{{ end }}.{{ with site.GetPage "/hold-tight" }} <a href="{{ .RelPermalink }}">{{ $p.game.more_text }}</a>.{{ end }}</p>
     {{- end }}
   </div>
 </section>
