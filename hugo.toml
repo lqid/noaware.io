@@ -8,7 +8,7 @@ disableHugoGeneratorInject = true
 disableKinds = ["taxonomy", "term", "RSS"]
 
 [params]
-  description = "Mono No Aware Studios: games and music about the things that don't last. An independent studio in Melbourne, Australia."
+  description = "Mono No Aware Studios, Melbourne. Hold Tight, a narrative puzzle game in development on Unreal Engine 5. Music by Daniel Kleviansky on Spotify and Apple Music."
   email = "contact@noaware.io"
 
   [params.links]

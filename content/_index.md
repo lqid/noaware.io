@@ -5,12 +5,10 @@ title: "Mono No Aware Studios"
 # contact links, the email address and the meta description in hugo.toml.
 
 hero:
-  # Rendered as "<term>, <pos> · <gloss>", term and gloss in italic, pos upright.
-  term: "mono no aware"
-  pos: "n."
-  gloss: "the quiet ache of things that pass."
-  heading: "Games and music about the things that don't last."
-  sub: "An independent studio in Melbourne, Australia. One game in development. One album, six singles, and a live set on the way."
+  # Small italic line above the heading. Leave empty ("") to drop it.
+  line: "The name comes from a Ken Liu short story."
+  heading: "Mono No Aware Studios makes games and music in Melbourne."
+  sub: "Hold Tight, a narrative puzzle game, is in development on Unreal Engine 5. The music is out on Spotify and Apple Music."
 
 game:
   label: "01 · Games"
@@ -19,7 +17,7 @@ game:
   # (U+00A0), so a term never splits across lines on a phone and a separator never starts a
   # line; the line may break only after a "·".
   meta: "Narrative puzzle game · Linear · Unreal Engine 5 · In development"
-  pitch: "You wake in a world that is almost yours. The only way to work out what happened is to replay memories that no longer play straight."
+  pitch: "You wake up in a world much like this one, and something is wrong with it. You replay your own warped memories to work out what has happened. It is linear, and there is no release date."
   # Key art: drop the real image in assets/images/ and point at it here, path relative to
   # assets/ (4:3 crops best; Hugo makes the sizes, and the social card follows).
   image: "images/nebula.jpg"
@@ -27,21 +25,30 @@ game:
 
 sound:
   label: "02 · Sound"
-  title: "Neoclassical, ambient, cinematic."
-  blurb: "Written, recorded and produced in the studio. Released as Daniel Kleviansky on Spotify and Apple Music, and played live under the same name."
+  title: "An album and six singles"
+  blurb: "At Once, Grace. (2020) and six singles are orchestral and ambient, self-produced, and released as Daniel Kleviansky on Spotify and Apple Music."
 
 live:
   label: "Live"
-  text: "A live set is in the works: ambient and electronic, played in a room, once, to whoever turns up."
-  empty: "No dates yet."
+  text: "An ambient and electronic live set is being put together."
+  empty: "Nothing is booked yet."
   booking: "Booking"
 
 about:
   label: "About"
-  text: "Mono No Aware Studios is Daniel Kleviansky: a decade spent building large systems for other people, now spent building smaller, stranger things with a few friends."
+  text: "Daniel Kleviansky is director and lead engineer. He spent over a decade on large-scale systems for the Australian federal government (contact centres, voice biometrics). The studio hires people when a project needs them."
+  # Optional second paragraph, body size. Leave empty ("") to drop it.
+  more: "The cover art for the music was commissioned from artists, who were paid. A council of AI agents argues about Hold Tight's design and builds none of it."
   rows:
     email: "Email"
     code: "Code"
     work: "Work"
     listen: "Listen"
+
+notfound:
+  label: "404 · Not found"
+  heading: "This page does not exist."
+  # The link text is appended as a link to the front page, followed by a full stop.
+  text: "Either the address is wrong or the page was removed. Both happen."
+  link: "Back to the front page"
 ---

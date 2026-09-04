@@ -1,8 +1,9 @@
 {{ define "main" }}
 <section class="container hero hero--404" aria-labelledby="nf-title">
-  <p class="label">404 · Not found</p>
-  <h1 id="nf-title" class="serif">Nothing here.</h1>
-  <p class="hero-sub">There is no page at this address. <a href="{{ site.Home.RelPermalink }}">Back to the front page</a>.</p>
+{{- $nf := site.Home.Params.notfound }}
+  <p class="label">{{ $nf.label }}</p>
+  <h1 id="nf-title" class="serif">{{ $nf.heading }}</h1>
+  <p class="hero-sub">{{ $nf.text }} <a href="{{ site.Home.RelPermalink }}">{{ $nf.link }}</a>.</p>
 </section>
 <div class="rule" aria-hidden="true"></div>
 {{ end }}

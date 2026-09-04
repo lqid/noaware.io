@@ -314,6 +314,7 @@ main:focus { outline: none; }
 
 /* About */
 .lede--about { font-size: clamp(26px, 0.77vw + 23px, 34px); line-height: 1.25; max-width: 600px; }
+.about-more { margin: 0; font-size: 18px; line-height: 1.55; max-width: 560px; }
 .contact {
   display: flex;
   flex-direction: column;

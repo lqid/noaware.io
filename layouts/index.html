@@ -3,7 +3,9 @@
 {{- $links := site.Params.links -}}
 
 <section class="container hero" aria-labelledby="hero-title">
-  <p class="definition serif">{{ $p.hero.term }}, <span class="pos">{{ $p.hero.pos }}</span> · {{ $p.hero.gloss }}</p>
+  {{- with $p.hero.line }}
+  <p class="definition serif">{{ . }}</p>
+  {{- end }}
   <h1 id="hero-title" class="serif">{{ $p.hero.heading }}</h1>
   <p class="hero-sub">{{ $p.hero.sub }}</p>
 </section>
@@ -93,6 +95,9 @@
   <div class="stack">
     <h2 id="about-title" class="label">{{ $p.about.label }}</h2>
     <p class="serif lede lede--about">{{ $p.about.text }}</p>
+    {{- with $p.about.more }}
+    <p class="about-more">{{ . }}</p>
+    {{- end }}
   </div>
   <dl class="contact">
     <div><dt>{{ $p.about.rows.email }}</dt><dd><a href="mailto:{{ site.Params.email }}">{{ site.Params.email }}</a></dd></div>
