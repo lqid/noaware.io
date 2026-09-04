@@ -6,7 +6,7 @@ title: "Mono No Aware Studios"
 
 hero:
   # Small italic line above the heading. Leave empty ("") to drop it.
-  line: "The name comes from a Ken Liu short story."
+  line: ""
   heading: "Mono No Aware Studios makes games and music in Melbourne."
   sub: "Hold Tight, a narrative puzzle game, is in development on Unreal Engine 5. The music is out on Spotify and Apple Music."
 
