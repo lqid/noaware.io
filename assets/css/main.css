@@ -171,11 +171,22 @@ main:focus { outline: none; }
   color: var(--muted);
 }
 .definition .pos { font-style: normal; }
-/* Japanese in the hero slot: upright, letterspaced, in the reader's Japanese serif so it sits
-   with the Cormorant heading (the site's own fonts are Latin subsets). */
-.definition:lang(ja) {
-  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif;
+/* Japanese glyphs (物の哀れ, hero and footer): a four-character subset of Noto Serif JP (OFL),
+   embedded so it needs no request, never flashes, and renders on machines with no Japanese
+   font. If the characters ever change, re-cut it: see README, "Japanese glyphs". */
+@font-face {
+  font-family: "Noto Serif JP Subset";
   font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url(data:font/woff2;base64,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) format("woff2");
+  unicode-range: U+7269, U+306E, U+54C0, U+308C;
+}
+:lang(ja) {
+  font-family: "Noto Serif JP Subset", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif;
+  font-style: normal;
+}
+.definition:lang(ja) {
   font-size: clamp(18px, 0.3vw + 16.9px, 21px);
   letter-spacing: 0.2em;
 }

@@ -14,7 +14,7 @@
      an inline style or an embed is ever added. Skipped under `hugo server`: its injected
      livereload script needs a WebSocket that default-src 'none' would refuse. */}}
 {{- if not hugo.IsServer }}
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; font-src 'self' data:; img-src 'self'; base-uri 'none'; form-action 'none'">
 {{- end }}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ $title }}</title>

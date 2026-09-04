@@ -78,6 +78,21 @@ Spotify and Apple Music artist pages). The email address is `params.email`.
 Cormorant Garamond and Instrument Sans are self-hosted in `static/fonts/` (latin subsets,
 variable weight, woff2). No requests go to Google Fonts at runtime.
 
+## Japanese glyphs
+
+The four characters 物の哀れ (hero and footer) use a subset of Noto Serif JP embedded in
+`assets/css/main.css` as a data URI, so they look the same on every device and need no request.
+The subset contains only those four glyphs. If the characters ever change, re-cut it and
+replace the base64 in the `@font-face` block, and update `unicode-range` to match:
+
+```sh
+curl -sL -A "Mozilla/5.0 Chrome/128.0" \
+  "https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400&text=%E7%89%A9%E3%81%AE%E5%93%80%E3%82%8C" \
+  | grep -o "https://fonts.gstatic.com/[^)]*" | head -1 | xargs curl -sL | base64
+```
+
+`text=` is the URL-encoded characters.
+
 ## Deployment
 
 Push to `main`. The GitHub Actions workflow in `.github/workflows/deploy.yml` builds the site
