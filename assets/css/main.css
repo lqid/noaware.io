@@ -229,7 +229,7 @@ main:focus { outline: none; }
 .pitch { font-size: clamp(17px, 0.19vw + 16.3px, 19px); line-height: 1.5; max-width: 440px; }
 .game-media img {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 9;
   object-fit: cover;
   box-sizing: border-box;
   background: var(--panel);

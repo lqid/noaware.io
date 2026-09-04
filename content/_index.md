@@ -20,10 +20,10 @@ game:
   # line; the line may break only after a "·".
   meta: "Narrative puzzle game · Linear · Unreal Engine 5 · In development"
   pitch: "You wake up in a world much like this one, and something is wrong with it. You replay your own warped memories to work out what has happened. It is linear, and there is no release date."
-  # Key art: drop the real image in assets/images/ and point at it here, path relative to
-  # assets/ (4:3 crops best; Hugo makes the sizes, and the social card follows).
-  image: "images/nebula.jpg"
-  image_alt: "Placeholder image: the Carina Nebula"
+  # Key art: an image under assets/, path relative to assets/ (16:9 shows uncropped; Hugo makes
+  # the sizes, and the social card follows).
+  image: "images/hold-tight.jpg"
+  image_alt: "Concept art for Hold Tight: three concrete cabins on a frozen shore under a green aurora, one with a lit window, and a larger complex against snow-covered mountains."
 
 sound:
   label: "02 · Sound"

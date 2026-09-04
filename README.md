@@ -61,12 +61,11 @@ relative to `assets/`; Hugo makes the thumbnails. Leave `image` out for a row wi
 
 ### Swap in key art
 
-Put the image in `assets/images/` and point `game.image` (path relative to `assets/`, e.g.
-`images/hold-tight.jpg`) and `game.image_alt` in `content/_index.md` at it. The frame is 4:3:
-Hugo centre-crops the source to 4:3 and writes 800- and 1067-wide JPEG and WebP variants. The
-Open Graph / Twitter card image and alt text come from the same settings: the full, uncropped
-source is published at the same path under `/images/` (today `/images/nebula.jpg`), so keep it
-under about 300 KB and nothing else needs editing. The current nebula is a placeholder.
+Put the image in `assets/images/` and point `game.image` (path relative to `assets/`) and
+`game.image_alt` in `content/_index.md` at it. The frame is 16:9; Hugo crops and resizes at
+build time and the social card uses the same image at its full size, published under
+`/images/`, so keep the source under about 400 KB. The current image is the Terra Incognita
+concept painting for Hold Tight.
 
 ### Profile links
 

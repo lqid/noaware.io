@@ -19,25 +19,22 @@
     <p class="pitch">{{ $p.game.pitch }}</p>
   </div>
   <div class="game-media">
-    {{/* KEY ART GOES HERE. The nebula is a stand-in: put the real image in assets/images/,
-         then set game.image (path under assets/) and game.image_alt in content/_index.md.
-         The frame is 4:3 (see .game-media img in assets/css/main.css); Hugo crops the centre
-         to 4:3 and emits 800- and 1067-wide JPEG and WebP variants. The social-card image
-         in partials/head.html is derived from the same file. */}}
+    {{/* Key art: game.image and game.image_alt in content/_index.md (a 16:9 image under assets/;
+         Hugo makes the sizes and the social card follows). */}}
     {{- $src := resources.Get $p.game.image }}
     {{- if not $src }}{{ errorf "game.image %q not found under assets/" $p.game.image }}{{ end }}
-    {{- $l := $src.Fill "1067x800 Center q78" }}
-    {{- $s := $src.Fill "800x600 Center q78" }}
-    {{- $lw := $src.Fill "1067x800 Center webp q78" }}
-    {{- $sw := $src.Fill "800x600 Center webp q78" }}
+    {{- $l := $src.Fill "1316x740 Center q80" }}
+    {{- $s := $src.Fill "800x450 Center q80" }}
+    {{- $lw := $src.Fill "1316x740 Center webp q80" }}
+    {{- $sw := $src.Fill "800x450 Center webp q80" }}
     {{/* The clamp() is --pad from assets/css/main.css, repeated because `sizes` cannot read
          custom properties; change both together. 658px is the 7/12 column of the 1200px
          container at its widest ((1200 - 72) * 7 / 12); between 1101 and 1440 it is smaller,
          and erring large only ever picks the larger candidate. */}}
     {{- $sizes := "(max-width: 1100px) calc(100vw - 2 * clamp(24px, 9.15vw - 11.7px, 120px)), 658px" }}
     <picture>
-      <source type="image/webp" srcset="{{ $sw.RelPermalink }} 800w, {{ $lw.RelPermalink }} 1067w" sizes="{{ $sizes }}">
-      <img src="{{ $l.RelPermalink }}" srcset="{{ $s.RelPermalink }} 800w, {{ $l.RelPermalink }} 1067w" sizes="{{ $sizes }}" width="{{ $l.Width }}" height="{{ $l.Height }}" alt="{{ $p.game.image_alt }}" decoding="async">
+      <source type="image/webp" srcset="{{ $sw.RelPermalink }} 800w, {{ $lw.RelPermalink }} 1316w" sizes="{{ $sizes }}">
+      <img src="{{ $l.RelPermalink }}" srcset="{{ $s.RelPermalink }} 800w, {{ $l.RelPermalink }} 1316w" sizes="{{ $sizes }}" width="{{ $l.Width }}" height="{{ $l.Height }}" alt="{{ $p.game.image_alt }}" decoding="async">
     </picture>
   </div>
 </section>

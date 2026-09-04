@@ -3,7 +3,7 @@
 {{- $desc := .Description | default site.Params.description -}}
 {{- $css := resources.Get "css/main.css" | minify | fingerprint -}}
 {{/* Social-card image: the full game key art from content/_index.md, published uncropped at
-     the same path under /images/ (today /images/nebula.jpg) so the card URL is stable. */}}
+     the same path under /images/ (today /images/hold-tight.jpg) so the card URL is stable. */}}
 {{- $g := site.Home.Params.game -}}
 {{- $src := resources.Get $g.image -}}
 {{- if not $src }}{{ errorf "game.image %q not found under assets/" $g.image }}{{ end -}}
