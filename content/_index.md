@@ -50,7 +50,7 @@ about:
   label: "About"
   text: "Mono No Aware Studios was started so that people could find each other through the things they make: a game, a record, a set played in a room. It is made with people, and it is shown to whoever is looking."
   # Optional second paragraph, body size. Leave empty ("") to drop it.
-  more: "The studio hires the people a project needs and pays them. Outstandly, a game art studio, painted the concept art for Hold Tight, and every record cover was commissioned from an artist. A council of AI agents argues about the game's design. That is all it does."
+  more: "Artists are hired, not prompted."
   rows:
     email: "Email"
     company: "Company"
