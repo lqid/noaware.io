@@ -29,10 +29,9 @@ game:
   credit: "Concept art by"
   credit_name: "Outstandly"
   credit_url: "https://outstandly.com/"
-  # More concept art, shown whole under the key art in this order. Paths relative to assets/.
-  gallery:
-    - image: "images/hold-tight-character.jpg"
-      alt: "Character concept sheet for Hold Tight: a woman in a grey tank top and jeans, with a gold ring and a pendant, and front and side line drawings."
+  # More concept art, shown whole under the key art in this order (image + alt per entry, paths
+  # relative to assets/). Empty on purpose: one image on the front page.
+  gallery: []
 
 sound:
   label: "02 · Sound"
