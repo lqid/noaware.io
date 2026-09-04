@@ -32,10 +32,15 @@
          container at its widest ((1200 - 72) * 7 / 12); between 1101 and 1440 it is smaller,
          and erring large only ever picks the larger candidate. */}}
     {{- $sizes := "(max-width: 1100px) calc(100vw - 2 * clamp(24px, 9.15vw - 11.7px, 120px)), 658px" }}
-    <picture>
-      <source type="image/webp" srcset="{{ $sw.RelPermalink }} 800w, {{ $lw.RelPermalink }} 1316w" sizes="{{ $sizes }}">
-      <img src="{{ $l.RelPermalink }}" srcset="{{ $s.RelPermalink }} 800w, {{ $l.RelPermalink }} 1316w" sizes="{{ $sizes }}" width="{{ $l.Width }}" height="{{ $l.Height }}" alt="{{ $p.game.image_alt }}" decoding="async">
-    </picture>
+    <figure class="game-figure">
+      <picture>
+        <source type="image/webp" srcset="{{ $sw.RelPermalink }} 800w, {{ $lw.RelPermalink }} 1316w" sizes="{{ $sizes }}">
+        <img src="{{ $l.RelPermalink }}" srcset="{{ $s.RelPermalink }} 800w, {{ $l.RelPermalink }} 1316w" sizes="{{ $sizes }}" width="{{ $l.Width }}" height="{{ $l.Height }}" alt="{{ $p.game.image_alt }}" decoding="async">
+      </picture>
+      {{- with $p.game.credit_name }}
+      <figcaption class="art-credit">{{ $p.game.credit }} {{ with $p.game.credit_url }}<a href="{{ . }}" rel="noopener">{{ $p.game.credit_name }}</a>{{ else }}{{ . }}{{ end }}.</figcaption>
+      {{- end }}
+    </figure>
   </div>
 </section>
 <div class="rule" aria-hidden="true"></div>

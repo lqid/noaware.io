@@ -235,6 +235,8 @@ main:focus { outline: none; }
   background: var(--panel);
   border: 1px solid var(--hairline);
 }
+.game-figure { margin: 0; }
+.art-credit { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 
 /* Sound */
 .blurb {

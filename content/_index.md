@@ -24,6 +24,11 @@ game:
   # the sizes, and the social card follows).
   image: "images/hold-tight.jpg"
   image_alt: "Concept art for Hold Tight: three concrete cabins on a frozen shore under a green aurora, one with a lit window, and a larger complex against snow-covered mountains."
+  # Credit under the image: "<credit> <credit_name>." with the name linked when credit_url is set.
+  # Leave credit_name empty ("") for no caption.
+  credit: "Concept art by"
+  credit_name: "Outstandly"
+  credit_url: "https://outstandly.com/"
 
 sound:
   label: "02 · Sound"
