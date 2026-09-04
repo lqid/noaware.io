@@ -337,7 +337,7 @@ main:focus { outline: none; }
 .contact {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0; /* no gap between rows: each row's padding centres its text between the rules */
   margin-top: 44px;
   font-size: 16px;
 }
@@ -346,7 +346,7 @@ main:focus { outline: none; }
   justify-content: space-between;
   gap: 16px;
   border-top: 1px solid var(--hairline);
-  padding: 12px 0;
+  padding: 14px 0;
 }
 .contact > div:last-child { border-bottom: 1px solid var(--hairline); }
 .contact dt { color: var(--muted); }
