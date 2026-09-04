@@ -227,16 +227,20 @@ main:focus { outline: none; }
 /* Games */
 .meta { font-size: 14px; color: var(--muted); letter-spacing: 0.02em; text-wrap: pretty; }
 .pitch { font-size: clamp(17px, 0.19vw + 16.3px, 19px); line-height: 1.5; max-width: 440px; }
+.game-media { display: flex; flex-direction: column; gap: 12px; }
 .game-media img {
   width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
+  height: auto;
   box-sizing: border-box;
   background: var(--panel);
   border: 1px solid var(--hairline);
 }
+/* The key art is cropped to 16:9. Concept sheets (.sheet) are shown whole: their width and
+   height attributes set the proportions, and no author aspect-ratio must override that, or the
+   space is not reserved before the lazy image loads. */
+.game-media img:not(.sheet) { aspect-ratio: 16 / 9; object-fit: cover; }
 .game-figure { margin: 0; }
-.art-credit { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.art-credit { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 
 /* Sound */
 .blurb {
@@ -387,7 +391,7 @@ main:focus { outline: none; }
   .band--sound { gap: var(--section-y); padding-bottom: 0; }
   .rule--after-sound { display: none; }
 
-  .game-media { order: -1; }
+  /* Text first, then the pictures, when the columns stack. */
   .band--games .label { margin-top: 8px; }
   .meta { line-height: 1.6; }
 

@@ -65,7 +65,8 @@ Put the image in `assets/images/` and point `game.image` (path relative to `asse
 `game.image_alt` in `content/_index.md` at it. The frame is 16:9; Hugo crops and resizes at
 build time and the social card uses the same image at its full size, published under
 `/images/`, so keep the source under about 400 KB. The current image is the Terra Incognita
-concept painting for Hold Tight.
+concept painting for Hold Tight. More concept art goes in `game.gallery` (image and alt text per
+entry); those are shown whole, in order, under the key art, and the credit line covers them all.
 
 ### Profile links
 

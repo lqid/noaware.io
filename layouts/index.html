@@ -37,10 +37,23 @@
         <source type="image/webp" srcset="{{ $sw.RelPermalink }} 800w, {{ $lw.RelPermalink }} 1316w" sizes="{{ $sizes }}">
         <img src="{{ $l.RelPermalink }}" srcset="{{ $s.RelPermalink }} 800w, {{ $l.RelPermalink }} 1316w" sizes="{{ $sizes }}" width="{{ $l.Width }}" height="{{ $l.Height }}" alt="{{ $p.game.image_alt }}" decoding="async">
       </picture>
-      {{- with $p.game.credit_name }}
-      <figcaption class="art-credit">{{ $p.game.credit }} {{ with $p.game.credit_url }}<a href="{{ . }}" rel="noopener">{{ $p.game.credit_name }}</a>{{ else }}{{ . }}{{ end }}.</figcaption>
-      {{- end }}
     </figure>
+    {{- /* More concept art, shown whole at the column width: game.gallery in content/_index.md. */}}
+    {{- range $p.game.gallery }}
+    {{- $g := resources.Get .image }}
+    {{- if not $g }}{{ errorf "gallery image %q not found under assets/" .image }}{{ end }}
+    {{- $gl := $g.Resize "1316x q80" }}{{ $gs := $g.Resize "800x q80" }}
+    {{- $glw := $g.Resize "1316x webp q80" }}{{ $gsw := $g.Resize "800x webp q80" }}
+    <figure class="game-figure">
+      <picture>
+        <source type="image/webp" srcset="{{ $gsw.RelPermalink }} 800w, {{ $glw.RelPermalink }} 1316w" sizes="{{ $sizes }}">
+        <img class="sheet" src="{{ $gl.RelPermalink }}" srcset="{{ $gs.RelPermalink }} 800w, {{ $gl.RelPermalink }} 1316w" sizes="{{ $sizes }}" width="{{ $gl.Width }}" height="{{ $gl.Height }}" alt="{{ .alt }}" loading="lazy" decoding="async">
+      </picture>
+    </figure>
+    {{- end }}
+    {{- with $p.game.credit_name }}
+    <p class="art-credit">{{ $p.game.credit }} {{ with $p.game.credit_url }}<a href="{{ . }}" rel="noopener">{{ $p.game.credit_name }}</a>{{ else }}{{ . }}{{ end }}.</p>
+    {{- end }}
   </div>
 </section>
 <div class="rule" aria-hidden="true"></div>
