@@ -71,7 +71,8 @@
         {{- /* Cover art, 56px (48px on phones), served at 2x and 3x. Decorative: the title sits
                beside it, so it is hidden from assistive tech and, when linked, skipped by Tab. */}}
         {{- with $r.image }}{{ with resources.Get . }}
-        {{- $a2 := .Fill "112x112 webp q85" }}{{ $a3 := .Fill "168x168 webp q85" }}
+        {{- /* Center: Hugo's default "smart" anchor picks its own focal point and shifts square art. */}}
+        {{- $a2 := .Fill "112x112 Center webp q85" }}{{ $a3 := .Fill "168x168 Center webp q85" }}
         {{- if $r.spotify }}<a class="rel-art" href="{{ $r.spotify }}" rel="noopener" tabindex="-1" aria-hidden="true">{{ else }}<span class="rel-art">{{ end }}<img src="{{ $a2.RelPermalink }}" srcset="{{ $a2.RelPermalink }} 2x, {{ $a3.RelPermalink }} 3x" width="56" height="56" alt="" loading="lazy" decoding="async">{{ if $r.spotify }}</a>{{ else }}</span>{{ end }}
         {{- else }}{{ errorf "release image %q not found under assets/" $r.image }}{{ end }}{{ end }}
         <span class="rel-title serif">{{ $r.title }}</span>
