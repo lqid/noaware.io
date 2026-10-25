@@ -252,8 +252,13 @@
         bus = ch.bus; master = ch.master;
         master.gain.value = clamp(cfg.volume, 0, 1) * 1.1;
       }
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      // 'suspended' after a pause, 'interrupted' on iOS after a call or the lock screen
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
       return ctx;
+    },
+    // Called on every touch and key press: a resume only succeeds inside a user gesture on iOS.
+    wake() {
+      if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {});
     },
     now() { return ctx ? ctx.currentTime : 0; },
     latency() { return ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0; },

@@ -239,55 +239,620 @@
     return best || [tonicRN, ...Array.from({ length: length - 1 }, (_, k) => (k % 2 ? tonicRN : pool.find((p) => p !== tonicRN) || tonicRN))];
   }
 
-  // Voice a chord: bass + three upper voices, moving as little as possible from the previous voicing.
-  function voiceChord(pcs, bassPc, tonic, prev) {
-    const lo = tonic - 3, hi = tonic + 17;
-    const abs = (pc) => mod12(tonic + pc);
-    // choose upper pitch-class sets (3 voices)
-    let sets;
-    if (pcs.length <= 3) sets = [pcs];
-    else sets = [[pcs[0], pcs[1], pcs[3]], [pcs[1], pcs[2], pcs[3]]];
+  // Two voicers share the same part-writing rules: no parallel fifths or octaves, the leading tone
+  // rises, the seventh falls, no augmented seconds, no doubled leading tone, small smooth motion.
+  // LIVE voices one chord at a time and looks ahead to the chords likely to follow (Explore, Sing);
+  // WHOLE voices a known progression all at once by dynamic programming (Harmony questions, intros).
+  const LIVE = (() => {
     const perms = (a) => (a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p])));
-    let best = null, bestCost = Infinity;
-    for (const set of sets) {
-      for (const order of perms(set)) {
-        const options = order.map((pc) => {
-          const out = [];
-          for (let m = lo; m <= hi; m++) if (mod12(m) === abs(pc)) out.push(m);
-          return out;
-        });
-        for (const a of options[0]) for (const b of options[1]) for (const c of options[2]) {
-          if (!(a < b && b < c)) continue;
-          if (c - a > 14) continue;
-          let cost;
-          if (prev) cost = Math.abs(a - prev[1]) + Math.abs(b - prev[2]) + Math.abs(c - prev[3]);
-          else cost = Math.abs((a + b + c) / 3 - (tonic + 7)) * 1.5;
-          if (c - a > 12) cost += 1.5;
-          if (cost < bestCost) { bestCost = cost; best = [a, b, c]; }
+    // Distinct orderings of a multiset (a doubled note gives fewer orderings).
+    const uniquePerms = (a) => {
+      const seen = new Set();
+      return perms(a).filter((p) => { const k = p.join(','); return seen.has(k) ? false : (seen.add(k), true); });
+    };
+    // Voice pairs that keep a perfect fifth or octave while both voices move (parallel or contrary).
+    function parallels(p, v) {
+      let n = 0;
+      for (let x = 0; x < v.length; x++) for (let y = x + 1; y < v.length; y++) {
+        const i1 = mod12(p[y] - p[x]), i2 = mod12(v[y] - v[x]);
+        if ((i1 === 0 || i1 === 7) && i1 === i2 && p[x] !== v[x] && p[y] !== v[y]) n++;
+      }
+      return n;
+    }
+
+    // Costs of the voice-leading choices (chorale style). Faults cost far more than motion, so the
+    // voicer gives up a rule only when every alternative breaks a worse one. Tuned on the shared
+    // harness (seeded Harmony questions and random Explore chains) and checked on a second seed.
+    const VL = {
+      parallel: 1000,     // parallel or contrary fifths/octaves, per voice pair
+      tiSop: 130,         // leading tone of a dominant not rising to Do, soprano
+      tiInner: 72,        // ... alto or tenor
+      tiBass: 4,          // ... bass (V6)
+      seventh: 72,        // seventh of V7 (Fa) not stepping down
+      seventhDim: 4,      // Fa of vii° not stepping down
+      secondaryLt: 5,     // third of a secondary dominant not rising to the new root
+      secondarySev: 5,    // seventh of a secondary dominant not stepping down
+      augSecondSop: 140,  // Le-Ti in the soprano, either way
+      augSecond: 65,      // ... in any other voice
+      doubledTi: 34,      // per extra leading tone
+      unequalFifths: 10,  // a diminished fifth over the bass moving to a perfect fifth
+      tritone: 34,        // melodic tritone, any voice
+      bigLeap: 44,        // upper-voice leap of a fifth or more
+      sopLeap: 0.1,       // per semitone of a soprano leap beyond a whole step
+      bassLeap: 25,       // bass leap of a sixth or seventh
+      overlap: 8.5,       // a voice passes the previous note of its neighbour
+      directOuter: 28,    // outer voices reach a fifth/octave in similar motion with a soprano leap
+      similarOuter: 0.45, // outer voices in similar motion
+      allSame: 2.25,      // all four voices move the same way
+      wide: 0.5,          // soprano more than an octave above the tenor
+      motion: 0.7,        // per semitone of upper-voice motion
+      bassMotion: 0.2,    // per semitone of bass motion
+      // doublings: root-position triads (third, fifth, tripled root, root + two thirds), first
+      // inversions (doubled bass for major / minor, doubled fifth), diminished triads, seventh chords
+      d3maj: 1.3, d3min: 0.45, d5: 0.5, r3: 2, rtt: 3.5, inv3maj: 1.7, inv3min: 0.1, inv5: 0.35, dimRoot: 1.1, dim5: 8, sev5: 0.25,
+      // looking ahead
+      ahead: 0.3,         // weight of how well the chord moves on to the chords that usually follow it
+      aheadAll: 2,        // weight of how well it moves on to any chord at all (Explore)
+      aheadBass: 1,       // weight of how near the bass is to the usual next bass
+      aheadMotion: 0.9,   // how much motion counts in that look, against faults
+      aheadKeep: 10,      // how many of the cheapest voicings get that look
+      aheadTop: 4,        // how many of the usual next chords to try
+      aheadCap: 100,      // a move that cannot be made well costs at most this
+      ahead2: 0.5,        // weight of the usual next chords' own continuations (two steps ahead)
+      ahead2Keep: 6,      // how many moves get that second look
+      maxSpan: 18,        // widest tenor-to-soprano span
+      bassGap: 2,         // closest the bass comes to the tenor
+    };
+
+    // Upper-voice pitch-class multisets for a chord, each with a doubling cost. Sets marked std are
+    // the textbook default (what voiceChord(..., null) has always used).
+    function upperSets(pcs, bassPc) {
+      if (pcs.length === 3) {
+        const [r, t, f] = pcs;
+        const minor = mod12(t - r) === 3, dim = mod12(f - r) === 6;
+        if (bassPc === r) return [
+          { set: [r, t, f], cost: dim ? VL.dimRoot : 0, std: true },     // doubled root
+          { set: [t, t, f], cost: dim ? 0 : minor ? VL.d3min : VL.d3maj }, // doubled third (vi after V; vii°, ii°)
+          { set: [t, f, f], cost: dim ? VL.dim5 : VL.d5 },                 // doubled fifth
+          { set: [r, r, t], cost: VL.r3 },                                 // tripled root, no fifth (V7 to I)
+          { set: [r, t, t], cost: VL.rtt },                                // doubled third, no fifth
+        ];
+        if (bassPc === t) return [
+          { set: [r, t, f], cost: dim ? 0 : minor ? VL.inv3min : VL.inv3maj, std: true }, // doubled bass
+          { set: [r, r, f], cost: 0 },                                                   // doubled root
+          { set: [r, f, f], cost: dim ? VL.dim5 : VL.inv5 },                             // doubled fifth
+        ];
+        return [{ set: [r, t, f], cost: 0, std: true }];
+      }
+      if (pcs.length === 4) {
+        // seventh chord over its root: root doubled with the fifth left out, or complete
+        return [
+          { set: [pcs[0], pcs[1], pcs[3]], cost: VL.sev5, std: true },
+          { set: [pcs[1], pcs[2], pcs[3]], cost: 0, std: true },
+        ];
+      }
+      return [{ set: pcs.slice(0, 3), cost: 0, std: true }];
+    }
+    const multisetKey = (a) => a.map(mod12).sort((x, y) => x - y).join(',');
+    // leading tones beyond the first (never double Ti)
+    const extraTi = (v, tonic) => Math.max(0, v.reduce((n, m) => n + (mod12(m - tonic) === 11), 0) - 1);
+    // Every voicing of a chord in range, cached per chord and key. old marks the voicings the
+    // original close-position voicer allowed (upper span up to 14, bass at least 3 below the tenor).
+    const voicingCache = new Map();
+    function chordVoicings(pcs, bassPc, tonic) {
+      const key = pcs.join(',') + '|' + bassPc + '|' + tonic;
+      if (voicingCache.has(key)) return voicingCache.get(key);
+      const lo = tonic - 3, hi = tonic + 17, bLo = tonic - 19, bHi = tonic - 6;
+      const notesOf = (pc, from, to) => {
+        const out = [];
+        for (let m = from; m <= to; m++) if (mod12(m) === mod12(tonic + pc)) out.push(m);
+        return out;
+      };
+      const basses = notesOf(bassPc, bLo, bHi);
+      const sets = upperSets(pcs, bassPc);
+      const list = [];
+      const setCost = new Map();
+      for (const { set, cost, std } of sets) {
+        if (!setCost.has(multisetKey(set))) setCost.set(multisetKey(set), cost);
+        for (const order of uniquePerms(set)) {
+          const options = order.map((pc) => notesOf(pc, lo, hi));
+          for (const a of options[0]) for (const b of options[1]) for (const c of options[2]) {
+            if (!(a < b && b < c) || c - a > VL.maxSpan || b - a > 12 || c - b > 12) continue;
+            for (const bass of basses) {
+              if (bass > a - VL.bassGap) continue;
+              const v = [bass, a, b, c];
+              list.push({ v, cost, std, ti: extraTi(v, tonic), wide: c - a > 12, old: c - a <= 14 && bass <= a - 3 });
+            }
+          }
         }
       }
+      const out = { pcs, bassPc, key: pcs.join(',') + '|' + bassPc, list, setCost, basses, notes: [...new Set(pcs.map(mod12))], lo, hi };
+      voicingCache.set(key, out);
+      return out;
     }
-    // bass
-    const bLo = tonic - 19, bHi = tonic - 6;
-    const target = prev ? prev[0] : tonic - 12;
-    let bass = null, bd = Infinity;
-    for (let m = bLo; m <= bHi; m++) {
-      if (mod12(m) !== abs(bassPc)) continue;
-      const d = Math.abs(m - target) + (m >= best[0] - 2 ? 50 : 0);
-      if (d < bd) { bd = d; bass = m; }
+    const ownCost = (c) => c.cost + VL.doubledTi * c.ti + (c.wide ? VL.wide : 0);
+
+    // Where a chord usually goes next (from NEXT), as [pcs, bassPc, weight], with the mode guessed
+    // from the notes in play. Used only to prefer voicings that can move on well.
+    const MINOR_ONLY = new Set(['i', 'ii°', 'III', 'v', 'VI', 'VII']);
+    const MAJOR_ONLY = new Set(['I', 'ii', 'iii', 'vi', 'vii°', 'I6', 'ii6', 'V6', 'IV', 'V/V', 'V/vi', 'V/ii', '♭VI', '♭VII', '♭III']);
+    let shapeNames = null, allShapes = null;
+    const nextCache = new Map();
+    function likelyNext(pcs, bassPc, minor) {
+      const key = pcs.join(',') + '|' + bassPc + '|' + minor;
+      if (nextCache.has(key)) return nextCache.get(key);
+      if (!shapeNames) {
+        shapeNames = new Map();
+        for (const n of Object.keys(RN)) {
+          const k = rnPcs(n).join(',') + '|' + rnBassPc(n);
+          if (!shapeNames.has(k)) shapeNames.set(k, []);
+          shapeNames.get(k).push(n);
+        }
+      }
+      const off = minor ? MAJOR_ONLY : MINOR_ONLY;
+      const names = (shapeNames.get(pcs.join(',') + '|' + bassPc) || []).filter((n) => !off.has(n));
+      const w = {};
+      for (const n of names) for (const [t, x] of Object.entries(NEXT[n] || {})) if (!off.has(t) && x > 0) w[t] = (w[t] || 0) + x;
+      const all = Object.entries(w).sort((a, b) => b[1] - a[1]);
+      const top = all.slice(0, VL.aheadTop);
+      // the dominant is the most demanding chord to move to, so it is always looked at
+      for (const e of all.slice(VL.aheadTop)) if (e[0] === 'V' || e[0] === 'V7') top.push(e);
+      const tot = top.reduce((s, [, x]) => s + x, 0);
+      const out = top.map(([t, x]) => [rnPcs(t), rnBassPc(t), x / tot]);
+      nextCache.set(key, out);
+      return out;
     }
-    return [bass, ...best];
-  }
-  function voiceProgression(seq, tonic) {
-    const out = [];
-    let prev = null;
-    for (const name of seq) {
-      const v = voiceChord(rnPcs(name), rnBassPc(name), tonic, prev);
-      out.push(v);
-      prev = v;
+
+    // What the previous chord asks of this one: tendency tones to resolve.
+    function tendencies(prev, pcs, tonic) {
+      const pr = prev.map((m) => mod12(m - tonic)), ps = new Set(pr), cur = new Set(pcs.map(mod12));
+      const dom = ps.has(11) && (ps.has(2) || ps.has(5));
+      let R = null; // root of a major or dominant-seventh previous chord
+      for (const r of ps) {
+        if (!ps.has(mod12(r + 4))) continue;
+        let ok = true;
+        for (const x of ps) if (![0, 4, 7, 10].includes(mod12(x - r))) ok = false;
+        if (ok) { R = r; break; }
+      }
+      const secondary = R !== null && R !== 7 && mod12(R - pcs[0]) === 7;
+      return {
+        pr,
+        tiRes: dom && cur.has(0) && !cur.has(11),
+        sevRes: dom && ps.has(5) && (cur.has(3) || cur.has(4)) ? (ps.has(7) ? VL.seventh : VL.seventhDim) : 0,
+        secLt: secondary ? mod12(R + 4) : null,
+        secSev: secondary && ps.has(mod12(R + 10)) ? mod12(R + 10) : null,
+      };
     }
-    return out;
-  }
+    // m scales the motion costs (the look ahead cares more about faults than about distance)
+    function transitionCost(p, v, ctx, tonic, m = 1) {
+      const d = [v[0] - p[0], v[1] - p[1], v[2] - p[2], v[3] - p[3]];
+      const pr = ctx.pr;
+      let cost = VL.bassMotion * m * Math.abs(d[0]);
+      for (let k = 0; k < 4; k++) {
+        const ad = Math.abs(d[k]);
+        if (k > 0) {
+          cost += VL.motion * m * ad;
+          if (ad >= 7) cost += VL.bigLeap;
+        } else if (ad > 7 && ad !== 12) cost += VL.bassLeap;
+        if (ad === 6) cost += VL.tritone;
+        if (ad === 3 && (pr[k] === 8 || pr[k] === 11)) {
+          const cp = mod12(v[k] - tonic);
+          if ((pr[k] === 8 && cp === 11) || (pr[k] === 11 && cp === 8)) cost += k === 3 ? VL.augSecondSop : VL.augSecond;
+        }
+        // tendency tones
+        if (ctx.tiRes && pr[k] === 11 && d[k] !== 1) cost += k === 3 ? VL.tiSop : k === 0 ? VL.tiBass : VL.tiInner;
+        if (k > 0) {
+          if (ctx.sevRes && pr[k] === 5 && d[k] !== -1 && d[k] !== -2) cost += ctx.sevRes;
+          if (pr[k] === ctx.secLt && d[k] !== 1) cost += VL.secondaryLt;
+          if (pr[k] === ctx.secSev && d[k] !== -1 && d[k] !== -2) cost += VL.secondarySev;
+        }
+      }
+      if (Math.abs(d[3]) > 2) cost += VL.sopLeap * (Math.abs(d[3]) - 2);
+      cost += VL.parallel * parallels(p, v);
+      // a diminished fifth over the bass moving to a perfect fifth in similar motion (Ti-Fa to Do-Sol)
+      for (let k = 1; k < 4; k++) {
+        if (d[0] && Math.sign(d[k]) === Math.sign(d[0]) && mod12(p[k] - p[0]) === 6 && mod12(v[k] - v[0]) === 7) cost += VL.unequalFifths;
+      }
+      for (let k = 0; k < 3; k++) if (v[k] > p[k + 1] || v[k + 1] < p[k]) cost += VL.overlap;
+      const sb = Math.sign(d[0]), ss = Math.sign(d[3]);
+      if (sb && sb === ss) {
+        cost += VL.similarOuter;
+        const iv = mod12(v[3] - v[0]);
+        if ((iv === 0 || iv === 7) && Math.abs(d[3]) > 2) cost += VL.directOuter;
+        if (Math.sign(d[1]) === sb && Math.sign(d[2]) === sb) cost += VL.allSame;
+      }
+      return cost;
+    }
+
+    // Cheapest bass move to one of the given bass notes.
+    function bassMove(bass, basses) {
+      let best = Infinity;
+      for (const b of basses) {
+        const d = Math.abs(b - bass);
+        best = Math.min(best, VL.bassMotion * d + (d > 7 && d !== 12 ? VL.bassLeap : 0) + (d === 6 ? VL.tritone : 0));
+      }
+      return best;
+    }
+    // Moves from voicing v to voicings of chord T near it (each upper voice within a fifth), cheapest first.
+    function movesTo(v, T, tonic) {
+      const ctx = tendencies(v, T.pcs, tonic);
+      const opts = [1, 2, 3].map((k) => {
+        const out = [];
+        for (const pc of T.notes) {
+          const base = tonic + pc;
+          for (let m = base + 12 * Math.ceil((v[k] - 7 - base) / 12); m <= v[k] + 7; m += 12) if (m >= T.lo && m <= T.hi) out.push(m);
+        }
+        return out;
+      });
+      const out = [];
+      for (const a of opts[0]) for (const b of opts[1]) {
+        if (b <= a || b - a > 12) continue;
+        for (const c of opts[2]) {
+          if (c <= b || c - b > 12 || c - a > VL.maxSpan) continue;
+          const sc = T.setCost.get(multisetKey([a - tonic, b - tonic, c - tonic]));
+          if (sc === undefined) continue;
+          for (const bass of T.basses) {
+            if (bass > a - VL.bassGap) continue;
+            const u = [bass, a, b, c];
+            const own = sc + VL.doubledTi * extraTi(u, tonic) + (c - a > 12 ? VL.wide : 0);
+            out.push({ u, cost: own + transitionCost(v, u, ctx, tonic, VL.aheadMotion) });
+          }
+        }
+      }
+      return out.sort((x, y) => x.cost - y.cost);
+    }
+    // How well voicing v can move on to chord T (capped), optionally also looking one chord further.
+    // Cached by the voicing's position relative to the tonic, so every key shares the work.
+    const moveCache = new Map();
+    function moveOn(v, T, tonic, depth, minor) {
+      const key = (depth > 1 ? (minor ? '2m' : '2M') : '1') + v.map((m) => m - tonic).join(',') + '|' + T.key;
+      const hit = moveCache.get(key);
+      if (hit !== undefined) return hit;
+      if (moveCache.size > 300000) moveCache.clear();
+      const moves = movesTo(v, T, tonic);
+      let val = moves.length ? moves[0].cost : Infinity;
+      if (depth > 1 && moves.length) {
+        const next = likelyNext(T.pcs, T.bassPc, minor).map(([p, b, w]) => [chordVoicings(p, b, tonic), w]);
+        val = Infinity;
+        for (const m of moves.slice(0, VL.ahead2Keep)) {
+          let a = 0;
+          for (const [T2, w] of next) a += w * moveOn(m.u, T2, tonic, 1, minor);
+          val = Math.min(val, m.cost + VL.ahead2 * a);
+        }
+      }
+      val = Math.min(val, VL.aheadCap * (depth > 1 ? 1 + VL.ahead2 : 1));
+      moveCache.set(key, val);
+      return val;
+    }
+
+    // Voice a chord: bass plus three upper voices, chosen together. With no previous chord it is the
+    // standard close voicing around the tonic. Otherwise every doubling and spacing is scored against
+    // the previous voicing: smooth motion and held common tones, no parallel or contrary fifths and
+    // octaves, tendency tones resolved (Ti up to Do, the seventh down), no augmented seconds, no
+    // doubled leading tone, no overlap, no direct fifths or octaves in the outer voices. The cheapest
+    // few are then also scored on how well they can move on to the chords that usually follow, so a
+    // V is voiced so that its Ti can still rise to Do in I or in vi. Nothing depends on later chords.
+    function voiceChord(pcs, bassPc, tonic, prev) {
+      const V = chordVoicings(pcs, bassPc, tonic);
+      let best = null, bestCost = Infinity;
+      if (!prev) {
+        for (const c of V.list) {
+          if (!c.old) continue;
+          const [bass, a, b, cc] = c.v;
+          let cost = Math.abs((a + b + cc) / 3 - (tonic + 7)) * 1.5 + 0.5 * Math.abs(bass - (tonic - 12));
+          if (!c.std) cost += 20 + c.cost;
+          cost += 40 * c.ti;
+          if (c.wide) cost += VL.wide;
+          if (cost < bestCost) { bestCost = cost; best = c.v; }
+        }
+        return best ? best.slice() : best;
+      }
+      const ctx = tendencies(prev, pcs, tonic);
+      // the mode, guessed from the notes in play: Me or Le without Mi or La
+      const ev = new Set([...prev.map((m) => mod12(m - tonic)), ...pcs]);
+      const minor = !ev.has(4) && !ev.has(9) && (ev.has(3) || ev.has(8));
+      const next = likelyNext(pcs, bassPc, minor).map(([p, b, w]) => [chordVoicings(p, b, tonic), w]);
+      const scored = V.list.map((c) => {
+        let cost = ownCost(c) + transitionCost(prev, c.v, ctx, tonic);
+        // the bass line: take the octave from which the usual next bass is near (IV on low Fa before V)
+        for (const [T, w] of next) cost += VL.aheadBass * w * bassMove(c.v[0], T.basses);
+        return { v: c.v, cost };
+      });
+      scored.sort((x, y) => x.cost - y.cost);
+      const targets = [];
+      if (VL.ahead > 0) for (const [T, w] of next) targets.push([T, w * VL.ahead, VL.ahead2 > 0 ? 2 : 1]);
+      if (VL.aheadAll > 0) {
+        if (!allShapes) allShapes = [...new Set(Object.keys(RN).map((n) => rnPcs(n).join(',') + '|' + rnBassPc(n)))].map((k) => { const [p, b] = k.split('|'); return [p.split(',').map(Number), +b]; });
+        for (const [p, b] of allShapes) targets.push([chordVoicings(p, b, tonic), VL.aheadAll / allShapes.length, 1]);
+      }
+      if (!targets.length) return scored.length ? scored[0].v.slice() : null;
+      for (const s of scored.slice(0, VL.aheadKeep)) {
+        let cost = s.cost;
+        for (const [T, w, depth] of targets) cost += w * moveOn(s.v, T, tonic, depth, minor);
+        if (cost < bestCost) { bestCost = cost; best = s.v; }
+      }
+      return best ? best.slice() : best;
+    }
+    function voiceProgression(seq, tonic) {
+      const out = [];
+      let prev = null;
+      for (const name of seq) {
+        const v = voiceChord(rnPcs(name), rnBassPc(name), tonic, prev);
+        out.push(v);
+        prev = v;
+      }
+      return out;
+    }
+    return { voiceChord, parallels };
+  })();
+  const WHOLE = (() => {
+    const perms = (a) => (a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p])));
+    // Voice pairs that keep a perfect fifth or octave while both voices move (parallel or contrary).
+    function parallels(p, v) {
+      let n = 0;
+      for (let x = 0; x < v.length; x++) for (let y = x + 1; y < v.length; y++) {
+        const i1 = mod12(p[y] - p[x]), i2 = mod12(v[y] - v[x]);
+        if ((i1 === 0 || i1 === 7) && i1 === i2 && p[x] !== v[x] && p[y] !== v[y]) n++;
+      }
+      return n;
+    }
+
+    // ---------- four-part voicing (chorale style) ----------
+    // A voicing is [bass, tenor, alto, soprano] in MIDI, strictly ascending: upper voices within
+    // [tonic-3, tonic+17], bass within [tonic-19, tonic-6]. Each candidate voicing of a chord has a static
+    // cost (doubling, spacing); each move between two voicings has a transition cost (motion, parallels,
+    // leaps, tendency tones). voiceChord picks the cheapest next voicing greedily (Explore, Sing);
+    // voiceProgression picks the cheapest path through the whole progression (Viterbi).
+    const VW = {
+      bass: 0.3, // per semitone of bass motion (upper voices cost 1 per semitone)
+      leap: 0.5, // per semitone beyond a major third in an upper voice
+      sop: 0.7, // per semitone beyond a whole step in the soprano (keep the top line smooth)
+      bigLeap: 10, // upper-voice leap of a fifth or more
+      tritone: 24, // melodic tritone in any voice
+      aug2: 50, aug2Sop: 90, // augmented second Le <-> Ti
+      parallel: 120, // parallel or contrary fifths/octaves, per voice pair
+      overlap: 2.25, // a voice passing where its neighbour just was
+      similar: 1.5, // outer voices in similar motion
+      direct: 20, // fifth or octave reached in the outer voices by similar motion with a soprano leap
+      ti: 40, tiSop: 64, // a dominant's leading tone that does not rise to Do
+      seventh: 60, // the seventh of V7 (Fa) that does not step down
+      fa: 12, // Fa of vii° that does not step down
+      melodic: 6, // another augmented or diminished melodic interval (Ti-Me, Me-Ti, Si-Do...)
+      slt: 8, // a secondary dominant's leading tone that does not rise
+      tiDouble: 40, // leading tone doubled in a dominant chord
+      sltDouble: 12, // secondary leading tone doubled
+      // doublings (root position doubles the root unless noted)
+      thirdMajor: 1, thirdMinor: 0.5, // doubled third
+      fifth: 3, // doubled fifth
+      noFifth: 3, // fifth left out (tripled root, or root and third doubled)
+      dimRoot: 0, dimFifth: 5, // diminished triad: doubled root, doubled fifth (doubled third is free)
+      sixThird: 2.5, sixFifth: 1.5, // first inversion: doubled bass (third), doubled fifth
+      v7NoFifth: 1, // V7 with doubled root and no fifth
+    };
+    // greedy voiceChord: weight of a candidate's flexibility, and how many chords ahead it looks
+    const LOOKAHEAD = 2, LOOK_DEPTH = 2, LOOK_GAMMA = 1;
+
+    // Upper-voice pitch-class sets (three voices over the bass), each with a small doubling cost.
+    function upperSets(pcs, bassPc) {
+      const [r, t, f, s] = pcs;
+      if (pcs.length >= 4) {
+        // seventh chord: complete, or root doubled without the fifth
+        if (bassPc === r) return [[[r, t, s], VW.v7NoFifth], [[t, f, s], 0]];
+        return [[pcs.filter((x) => x !== bassPc).slice(0, 3), 0]];
+      }
+      const minor = mod12(t - r) === 3, dim = minor && mod12(f - r) === 6;
+      if (bassPc === r) {
+        // diminished: double the third
+        if (dim) return [[[r, t, f], VW.dimRoot], [[t, t, f], 0], [[t, f, f], VW.dimFifth]];
+        return [[[r, t, f], 0], [[t, t, f], minor ? VW.thirdMinor : VW.thirdMajor], [[r, r, t], VW.noFifth], [[t, f, f], VW.fifth], [[r, t, t], VW.noFifth + VW.thirdMajor]];
+      }
+      // first inversion: double the root or the fifth, rarely the bass
+      if (bassPc === t) return [[[r, t, f], dim ? 0 : VW.sixThird], [[r, r, f], 0], [[r, f, f], VW.sixFifth], [[r, r, t], VW.noFifth]];
+      return [[[r, t, f], 0], [[r, r, t], VW.noFifth]];
+    }
+
+    // A voicing with what the transition cost needs to know about it.
+    function voicingInfo(v, tonic, st) {
+      const pc = v.map((x) => mod12(x - tonic));
+      let mask = 0;
+      for (const x of pc) mask |= 1 << x;
+      const has = (x) => (mask >> x) & 1;
+      // dominant (V, V6, V7, vii°): Ti without Mi or Le (those make it iii or V/vi)
+      const dom = !!(has(11) && !has(4) && !has(8));
+      const v7 = dom && !!(has(5) && has(7));
+      // secondary leading tone: Fi (V/V), Di (V/ii), Si = Le with Mi (V/vi)
+      const lt = has(6) ? 6 : has(1) ? 1 : has(8) && has(4) ? 8 : -1;
+      // letter-name step of each voice above Do (0-6), so melodic intervals can be spelled
+      const sp = pc.map((x) => (x === lt ? LT_STEP[x] : STEP[x]));
+      return { v, pc, sp, mask, dom, v7, lt, st };
+    }
+    const STEP = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // Ra/Re = 2nd, Me/Mi = 3rd, Le/La = 6th, Te/Ti = 7th
+    const LT_STEP = { 1: 0, 6: 3, 8: 4 }; // secondary leading tones are sharps: Di, Fi, Si
+    // MELODIC[step][semitones]: 1 when a melodic interval is perfect, major or minor (or a chromatic
+    // semitone); augmented and diminished ones (Ti up to Me, Le down to Ti...) are 0.
+    const MELODIC = [[0, 1], [1, 2], [3, 4], [5], [7], [8, 9], [10, 11]].map((ok) => Array.from({ length: 12 }, (_, i) => +ok.includes(i)));
+
+    const VCACHE = new Map();
+    function chordCandidates(pcs, bassPc, tonic) {
+      pcs = pcs.map(mod12);
+      bassPc = mod12(bassPc);
+      const key = tonic + '|' + pcs.join(',') + '|' + bassPc;
+      let out = VCACHE.get(key);
+      if (out) return out;
+      out = [];
+      const lo = tonic - 3, hi = tonic + 17, bLo = tonic - 19, bHi = tonic - 6;
+      const notesOf = (pc, from, to) => {
+        const r = [];
+        for (let m = from; m <= to; m++) if (mod12(m - tonic) === pc) r.push(m);
+        return r;
+      };
+      const basses = notesOf(bassPc, bLo, bHi);
+      const seen = new Set();
+      for (const [set, sc] of upperSets(pcs, bassPc)) {
+        for (const order of perms(set)) {
+          const opt = order.map((pc) => notesOf(pc, lo, hi));
+          for (const a of opt[0]) for (const b of opt[1]) for (const c of opt[2]) {
+            if (!(a < b && b < c) || b - a > 12 || c - b > 12) continue; // adjacent upper voices within an octave
+            for (const bass of basses) {
+              const id = bass * 1e6 + a * 1e4 + b * 100 + c;
+              if (seen.has(id)) continue;
+              seen.add(id);
+              const info = voicingInfo([bass, a, b, c], tonic, sc);
+              const count = (x) => info.pc.filter((y) => y === x).length;
+              if (info.dom && count(11) > 1) info.st += VW.tiDouble;
+              if (info.lt >= 0 && count(info.lt) > 1) info.st += VW.sltDouble;
+              out.push(info);
+            }
+          }
+        }
+      }
+      VCACHE.set(key, out);
+      return out;
+    }
+
+    // Cost of moving from voicing P to voicing C (both from voicingInfo); never negative.
+    function transCost(P, C) {
+      const p = P.v, c = C.v, pp = P.pc, cp = C.pc;
+      let cost = 0;
+      for (let k = 0; k < 4; k++) {
+        const d = c[k] - p[k], ad = d < 0 ? -d : d;
+        if (k === 0) cost += VW.bass * ad;
+        else {
+          cost += ad;
+          if (ad > 4) cost += VW.leap * (ad - 4);
+          if (k === 3 && ad > 2) cost += VW.sop * (ad - 2);
+          if (ad >= 7) cost += VW.bigLeap;
+        }
+        if (ad === 6) cost += VW.tritone;
+        else if (ad === 3 && ((pp[k] === 8 && cp[k] === 11) || (pp[k] === 11 && cp[k] === 8))) cost += k === 3 ? VW.aug2Sop : VW.aug2;
+        else if (d !== 0 && !MELODIC[(d > 0 ? C.sp[k] - P.sp[k] + 7 : P.sp[k] - C.sp[k] + 7) % 7][ad % 12]) cost += VW.melodic;
+      }
+      cost += VW.parallel * parallels(p, c);
+      for (let k = 0; k < 3; k++) if (c[k] > p[k + 1] || c[k + 1] < p[k]) cost += VW.overlap;
+      const db = c[0] - p[0], ds = c[3] - p[3];
+      if ((db > 0 && ds > 0) || (db < 0 && ds < 0)) {
+        cost += VW.similar;
+        const iv = mod12(c[3] - c[0]);
+        if ((iv === 0 || iv === 7) && (ds > 2 || ds < -2)) cost += VW.direct;
+      }
+      const cm = C.mask;
+      if (P.dom) {
+        // Ti rises to Do when the next chord has Do (and no Ti of its own)
+        if ((cm & 1) && !(cm & 2048)) for (let k = 1; k < 4; k++) if (pp[k] === 11 && c[k] - p[k] !== 1) cost += k === 3 ? VW.tiSop : VW.ti;
+        // Fa (the seventh of V7, the fifth of vii°) steps down to Mi or Me
+        if (cm & 24) for (let k = 1; k < 4; k++) if (pp[k] === 5) { const d = c[k] - p[k]; if (d !== -1 && d !== -2) cost += P.v7 ? VW.seventh : VW.fa; }
+      }
+      if (P.lt >= 0) {
+        // a secondary leading tone rises a half step (Fi may also slide down to Fa, the seventh of V7)
+        const tg = (P.lt + 1) % 12;
+        if ((cm >> tg) & 1 && !((cm >> P.lt) & 1)) for (let k = 0; k < 4; k++) {
+          const d = c[k] - p[k];
+          if (pp[k] === P.lt && d !== 1 && !(d === -1 && C.v7)) cost += VW.slt;
+        }
+      }
+      return cost;
+    }
+
+    // Cost of a voicing heard on its own: close, centred register (the standard root-position sound).
+    const aloneCost = (C, tonic) => {
+      const [bass, a, b, c] = C.v;
+      return Math.abs((a + b + c) / 3 - (tonic + 7)) * 1.5 + 0.5 * Math.abs(bass - (tonic - 12)) + 2.5 * C.st;
+    };
+
+    // How well a voicing can move on when the next chord is unknown (Explore): the average, over every
+    // Roman numeral, of the cheapest move to it (plus, at depth 2, how well that voicing moves on in
+    // turn). Computed once per candidate and cached on it, so a new key costs a few ms once.
+    let RN_CHORDS = null;
+    function flexibility(C, tonic, depth = LOOK_DEPTH) {
+      const key = 'flex' + depth;
+      if (C[key] !== undefined) return C[key];
+      if (!RN_CHORDS) RN_CHORDS = Object.keys(RN).map((n) => [rnPcs(n), rnBassPc(n)]);
+      let sum = 0;
+      for (const [pcs, bass] of RN_CHORDS) {
+        let m = Infinity;
+        for (const D of chordCandidates(pcs, bass, tonic)) {
+          let x = D.st + transCost(C, D);
+          if (depth > 1 && x < m) x += LOOK_GAMMA * flexibility(D, tonic, depth - 1);
+          if (x < m) m = x;
+        }
+        sum += m;
+      }
+      return (C[key] = sum / RN_CHORDS.length);
+    }
+
+    // Voice one chord. With prev (the previous 4-note voicing), the cheapest move from it that also
+    // leaves good moves for whatever chord comes next; without, the standard voicing heard on its own.
+    function voiceChord(pcs, bassPc, tonic, prev) {
+      const cands = chordCandidates(pcs, bassPc, tonic);
+      let best = null, bestCost = Infinity;
+      if (Array.isArray(prev) && prev.length === 4) {
+        const P = voicingInfo(prev, tonic, 0);
+        for (const C of cands) {
+          const base = C.st + transCost(P, C);
+          if (base >= bestCost) continue;
+          const cost = base + LOOKAHEAD * flexibility(C, tonic);
+          if (cost < bestCost) { bestCost = cost; best = C; }
+        }
+      } else {
+        for (const C of cands) {
+          if (C.v[3] - C.v[1] > 14) continue;
+          const cost = aloneCost(C, tonic);
+          if (cost < bestCost) { bestCost = cost; best = C; }
+        }
+      }
+      return best ? best.v.slice() : null;
+    }
+
+    // Voice a whole progression at once: the cheapest path through every chord's candidate voicings.
+    // The first chord is always voiceChord(..., null), so it never depends on what follows.
+    // fixed (optional): voicings to keep for the first fixed.length chords (e.g. the shared start of a
+    // question and a wrong answer); the rest is voiced to follow on from them.
+    function voiceProgression(seq, tonic, fixed) {
+      const n = seq.length;
+      if (!n) return [];
+      const fx = [];
+      if (Array.isArray(fixed)) for (let i = 0; i < Math.min(n, fixed.length); i++) {
+        if (!Array.isArray(fixed[i]) || fixed[i].length !== 4) break;
+        fx.push(fixed[i].slice());
+      }
+      const first = fx.length ? fx[0] : voiceChord(rnPcs(seq[0]), rnBassPc(seq[0]), tonic, null);
+      const layers = [[voicingInfo(first, tonic, 0)]];
+      const back = [];
+      let costs = [0];
+      for (let i = 1; i < n; i++) {
+        const prev = layers[i - 1];
+        const cands = i < fx.length ? [voicingInfo(fx[i], tonic, 0)] : chordCandidates(rnPcs(seq[i]), rnBassPc(seq[i]), tonic);
+        const nc = new Array(cands.length), bk = new Array(cands.length);
+        for (let j = 0; j < cands.length; j++) {
+          const C = cands[j];
+          let bc = Infinity, bi = 0;
+          for (let k = 0; k < prev.length; k++) {
+            if (costs[k] >= bc) continue;
+            const y = costs[k] + transCost(prev[k], C);
+            if (y < bc) { bc = y; bi = k; }
+          }
+          nc[j] = bc + C.st;
+          bk[j] = bi;
+        }
+        layers.push(cands);
+        back.push(bk);
+        costs = nc;
+      }
+      let j = 0;
+      for (let k = 1; k < costs.length; k++) if (costs[k] < costs[j]) j = k;
+      const out = new Array(n);
+      for (let i = n - 1; i >= 0; i--) {
+        out[i] = layers[i][j].v.slice();
+        if (i > 0) j = back[i - 1][j];
+      }
+      return out;
+    }
+    return { voiceProgression };
+  })();
+  const { voiceChord, parallels } = LIVE;
+  // voiceProgression(seq, tonic, fixed): fixed keeps the given voicings for the first chords, so a
+  // re-voiced answer sounds like the question up to the first chord that differs.
+  const voiceProgression = WHOLE.voiceProgression;
 
   // ---------- melody generator ----------
   // pool: allowed semitone offsets from Do (sorted). chromatic: {semi: resolveTo}.
@@ -433,7 +998,7 @@
     DEGREES, DEG, degBySemi, MODE_SCALE, resolutionPath,
     CADENCE, cadenceEvents, cadenceLength,
     INTERVALS, IV, CHORD_TYPES, chordVoicing,
-    RN, rnPcs, rnBassPc, NEXT, genProgression, voiceChord, voiceProgression,
+    RN, rnPcs, rnBassPc, NEXT, genProgression, voiceChord, voiceProgression, parallels,
     genMelody, RCELLS, cellLen, genRhythm, rhythmOnsets, countLabel,
   });
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -110,6 +110,28 @@
     plan.push({ track: 'sing', count: Math.min(3, n(2, 1)), role: 'Sing to finish' });
     return plan;
   }
+  // Today's plan is kept on this device after it starts, so an interrupted session resumes where it stopped.
+  const PLAN_KEY = 'tone-ladder-v1-plan';
+  function savedPlan() {
+    try {
+      const p = JSON.parse(localStorage.getItem(PLAN_KEY));
+      const ok = p && p.day === TL.dayKey() && Array.isArray(p.blocks) && p.blocks.length
+        && p.blocks.every((b) => b && (b.track === 'mix' || (TRACK[b.track] && S.isUnlocked(b.track))) && Number.isFinite(b.count) && Number.isFinite(b.done));
+      return ok ? p : null;
+    } catch (e) { return null; }
+  }
+  function storePlan(blocks, day) {
+    if (S.blocked) return;
+    try {
+      localStorage.setItem(PLAN_KEY, JSON.stringify({
+        day,
+        blocks: blocks.map((b) => ({ track: b.track, count: b.count, role: b.role, done: b.skipped ? b.count : Math.min(b.done || 0, b.count), skipped: !!b.skipped })),
+      }));
+    } catch (e) { /* storage blocked: the plan simply starts over */ }
+  }
+  const planLeft = (p) => !!p && p.blocks.some((b) => b.done < b.count);
+  const dropPlan = () => { try { localStorage.removeItem(PLAN_KEY); } catch (e) { /* blocked */ } };
+  const savePlanNow = () => { if (R && R.daily) storePlan(R.plan, R.planDay); };
   function reviewable() {
     return TRACKS.map((t) => t.id).filter((id) => id !== 'sing' && S.isUnlocked(id) && S.track(id).intro[S.track(id).level] && S.track(id).last);
   }
@@ -149,6 +171,36 @@
       ? `${fmtNum(m.correct)} points from the last ${m.n} rounds · ${m.need} to level up (Matched 1, Close ½)`
       : `${fmtNum(m.correct)} of the last ${m.n} right · ${m.need} of ${m.window} to level up`;
   }
+  // "To level up: 4 more right answers · Fa: 2 more right · with some on another day"
+  // What one counted answer is in each track: a question, or one chord, note or rhythm figure of a question.
+  const UNIT = {
+    harmony: ['right chord', 'right chords'], melody: ['right note', 'right notes'],
+    rhythm: ['rhythm figure tapped right', 'rhythm figures tapped right'], sing: ['Matched round', 'Matched rounds'],
+  };
+  const unitOf = (id, n) => (UNIT[id] || ['right answer', 'right answers'])[n === 1 ? 0 : 1];
+  function toGoText(id) {
+    const g = S.toGo(id);
+    if (g.complete) return '';
+    const gateName = g.gate ? `${TRACK[g.gate.track].name} level ${g.gate.level + 1}` : '';
+    if (!g.answers && !g.items.length) {
+      if (g.needsDay) return `Ready. A right answer on another day confirms the level.${g.gate ? ` Then it moves on when you reach ${gateName}.` : ''}`;
+      if (g.gate) return `Ready. It moves on when you reach ${gateName}.`;
+      return 'Ready to level up with your next right answer.';
+    }
+    const parts = [];
+    if (g.answers) parts.push(`${g.answers} more ${unitOf(id, g.answers)}`);
+    g.items.slice(0, 2).forEach((x) => parts.push(`${itemName(id, x.item)}: ${x.more} more right`));
+    if (g.items.length > 2) parts.push(`and ${g.items.length - 2} more new sounds, 3 right each`);
+    return `${g.isLast ? 'To finish the track' : 'To level up'}: ${parts.join(' · ')}.${g.needsDay ? ' Answers must come from at least two days.' : ''}${g.gate ? ` Then it waits for ${gateName}.` : ''}`;
+  }
+  function toGoShort(id) {
+    const g = S.toGo(id);
+    if (g.complete) return '';
+    if (g.answers) return id === 'harmony' || id === 'melody' ? `${g.answers} ${id === 'harmony' ? 'chords' : 'notes'} to level up` : `${g.answers} to level up`;
+    if (g.items.length) return `${itemName(id, g.items[0].item)} needs ${g.items[0].more} more`;
+    if (g.needsDay) return 'confirms on another day';
+    return g.gate ? `waits for ${TRACK[g.gate.track].short} ${g.gate.level + 1}` : '';
+  }
   function gateText(id, need) {
     const t = S.track(id);
     return `Level ${t.level + 2} opens when you reach ${TRACK[need.track].name} level ${need.level + 1} (${TRACK[need.track].levels[need.level].name}).`;
@@ -166,7 +218,7 @@
     return `<article class="tcard ${unlocked ? '' : 'locked'}" style="--h:${tr.hue}">
       <header><h3><span class="dot" aria-hidden="true"></span>${esc(tr.name)}</h3><span class="lvl">Level ${t.level + 1} of ${tr.levels.length}</span></header>
       <p class="lvname">${esc(lv.name)}</p>
-      ${unlocked ? `<div class="meter" role="img" aria-label="Mastery ${pct(m.pct)}"><span style="width:${(t.complete ? 1 : m.pct) * 100}%"></span></div><p class="meta">${meta}</p>`
+      ${unlocked ? `<div class="meter" role="img" aria-label="Mastery ${pct(m.pct)}"><span style="width:${(t.complete ? 1 : m.pct) * 100}%"></span></div><p class="meta">${meta}</p>${!t.complete && (m.n || t.intro[t.level]) && !gate ? `<p class="meta togo">${esc(toGoText(tr.id))}</p>` : ''}`
         : `<p class="meta">Opens when you reach ${esc(S.prereqText(tr.id))}.</p>`}
       <div class="actions">
         ${unlocked ? `<button class="btn sm primary" data-act="practice" data-track="${tr.id}">Practice</button>` : ''}
@@ -176,14 +228,20 @@
   }
 
   function planRow(b) {
-    if (b.track === 'mix') return `<li><div class="what"><div class="role">${esc(b.role)}</div><div class="tname">Tracks you have practiced, shuffled</div></div><span class="cnt">${b.count} q</span></li>`;
+    const finished = (b.done || 0) >= b.count;
+    const cnt = b.skipped ? 'skipped' : finished ? `✓ ${b.count} q` : b.done ? `${b.done} / ${b.count} q` : `${b.count} q`;
+    const cls = finished ? ' class="done"' : '';
+    if (b.track === 'mix') return `<li${cls}><div class="what"><div class="role">${esc(b.role)}</div><div class="tname">Tracks you have practiced, shuffled</div></div><span class="cnt">${cnt}</span></li>`;
     const tr = TRACK[b.track];
     const t = S.track(b.track);
-    return `<li><div class="what"><div class="role">${esc(b.role)}</div><div><span class="tname">${esc(tr.name)}</span> <span class="lv">· ${esc(tr.levels[t.level].name)}</span></div></div><span class="cnt">${b.count} q</span></li>`;
+    return `<li${cls}><div class="what"><div class="role">${esc(b.role)}</div><div><span class="tname">${esc(tr.name)}</span> <span class="lv">· ${esc(tr.levels[t.level].name)}</span></div></div><span class="cnt">${cnt}</span></li>`;
   }
 
   function viewToday() {
-    const plan = buildDailyPlan();
+    const saved = savedPlan();
+    const resuming = planLeft(saved);
+    const plan = resuming ? saved.blocks : buildDailyPlan();
+    const left = plan.map((b) => ({ ...b, count: b.count - Math.min(b.done || 0, b.count) }));
     const day = S.today();
     const dayQ = S.dayQ(day);
     const goal = S.settings.dailyGoal;
@@ -221,16 +279,25 @@
       'Mixed review': 'Questions from the tracks you have practiced, except Sing, shuffled. Mixing feels harder in the moment and makes memory last.',
       'Sing to finish': 'A short singing set to end on. If you can sing a sound, you can hear it in your head.',
     };
+    const backup = backupDue() ? `
+      <section class="welcome" style="grid-template-columns:1fr">
+        <div>
+          <p class="eyebrow">Keep a copy</p>
+          <h2>Your progress lives only in this browser</h2>
+          <p>An iPhone can clear a website’s saved data after a week without a visit. Copy your progress now and then and keep it somewhere safe, such as a note. Paste it back under Preferences if it is ever lost.</p>
+          <div class="row" style="margin-top:16px"><button class="btn" data-act="exportProgress">Copy my progress</button><button class="btn ghost" data-act="backupLater">Remind me in two weeks</button></div>
+        </div>
+      </section>` : '';
     const whyRows = [...new Set(plan.map((b) => b.role))].filter((r) => WHY[r]).map((r) => `<div><strong>${esc(r)}</strong><p>${esc(WHY[r])}</p></div>`).join('');
     return `<div class="today">
-      ${S.state.onboarded ? '' : welcome}${whatsNew}
+      ${S.state.onboarded ? '' : welcome}${whatsNew}${backup}
       <section class="hero">
         <div>
           <p class="eyebrow">${esc(date)}</p>
           <h1>${met ? 'Today’s goal is <em>met</em>' : 'Today’s <em>practice</em>'}</h1>
-          <p class="lede">${met ? 'You can stop here, or run another set. Extra practice still counts toward your review schedule.' : `About ${planMinutes(plan)} minutes in ${plan.length} short sets. Sing along whenever you can.`}</p>
+          <p class="lede">${met ? 'You can stop here, or run another set. Extra practice still counts toward your review schedule.' : resuming ? `About ${planMinutes(left)} minutes left in today’s plan. It picks up where you stopped.` : `About ${planMinutes(plan)} minutes in ${plan.length} short sets. Sing along whenever you can.`}</p>
           <div class="hero-actions">
-            <button class="btn primary lg" data-act="startDaily">${met ? 'Practice again' : dayQ ? 'Continue practice' : 'Start practice'}</button>
+            <button class="btn primary lg" data-act="startDaily">${resuming ? 'Continue practice' : met ? 'Practice again' : 'Start practice'}</button>
             ${S.state.onboarded ? '<button class="btn lg" data-act="soundCheck">Sound check</button>' : ''}
           </div>
           <div class="daystats">
@@ -306,8 +373,9 @@
             <h3 class="serif" style="font-size:26px">${esc(tr.levels[t.level].name)}</h3>
             <div class="meter deg" style="--h:${tr.hue}"><span style="width:${(t.complete ? 1 : m.pct) * 100}%"></span></div>
             <p class="muted" style="font-size:13.5px">${t.complete ? 'Every level in this track is mastered.' : tr.selfGraded
-              ? `Level up at ${m.need} points from your last ${m.window} rounds (Matched counts 1, Close counts ½). Practice rounds are not counted.${S.nextNeeds(id) ? ' ' + esc(gateText(id, S.nextNeeds(id))) : ''}`
-              : `Level up at ${m.need} right out of your last ${m.window}${(tr.levels[t.level].introduce || []).length ? ', with each new item answered correctly a few times' : ''}.`}</p>
+              ? `Level up at ${m.need} points from your last ${m.window} rounds (Matched counts 1, Close counts ½). Practice rounds are not counted, and the rounds must come from at least two different days.${S.nextNeeds(id) ? ' ' + esc(gateText(id, S.nextNeeds(id))) : ''}`
+              : `Level up at ${m.need} right out of your last ${m.window}${(tr.levels[t.level].introduce || []).length ? ', with each new item answered correctly a few times' : ''}, on at least two different days.`}</p>
+            ${t.complete ? '' : `<p style="font-size:14px;font-weight:600">${esc(toGoText(id))}</p>`}
             <div class="row">
               <button class="btn primary" data-act="practice" data-track="${id}">Practice</button>
               <button class="btn" data-act="reintro" data-track="${id}">Hear the new sounds</button>
@@ -333,10 +401,11 @@
   // SESSION RUNNER
   // ======================================================================
   function startSession(plan, opts = {}) {
+    if (S.blocked) { toast('Reload the page first: your progress was saved by a newer version.'); return; }
     if (!safeAudio()) return;
     A.stop();
     R = {
-      plan: plan.map((b) => ({ ...b, done: 0, score: 0, sn: 0 })), bi: -1, phase: null, q: null, qid: 0,
+      plan: plan.map((b) => ({ ...b, done: b.done || 0, done0: b.done || 0, score: 0, sn: 0 })), bi: -1, phase: null, q: null, qid: 0, planDay: opts.day,
       levelUps: [], recent: {}, retry: [], key: null, answered: 0, score: 0, sn: 0,
       started: Date.now(), lastActive: performance.now(), itemsSession: {}, daily: !!opts.daily,
     };
@@ -353,12 +422,14 @@
 
   function nextBlock() {
     R.bi++;
+    // sets already finished earlier today are passed over
+    while (R.bi < R.plan.length && (R.plan[R.bi].skipped || R.plan[R.bi].done >= R.plan[R.bi].count)) R.bi++;
     if (R.bi >= R.plan.length) return finishSession();
     const b = block();
     R.retry = [];
-    if (b.track === 'mix') { b.tracks = reviewable(); if (!b.tracks.length) return nextBlock(); }
-    if (R.bi > 0 && R.plan.length > 1) { R.phase = 'between'; R.q = null; A.stop(); renderSession(); }
-    else nextQuestion();
+    if (b.track === 'mix') { b.tracks = reviewable(); if (!b.tracks.length) { b.skipped = true; savePlanNow(); return nextBlock(); } }
+    if (R.played && R.plan.length > 1) { R.phase = 'between'; R.q = null; A.stop(); renderSession(); }
+    else { R.played = true; nextQuestion(); }
   }
 
   function introData(trackId, L, tonic) {
@@ -438,7 +509,7 @@
     if (b.track === 'mix') {
       // a track can level up during review; never test a level whose sounds have not been introduced
       b.tracks = b.tracks.filter((id) => S.track(id).intro[S.track(id).level]);
-      if (!b.tracks.length) return nextBlock();
+      if (!b.tracks.length) { if (b.done) b.count = b.done; else b.skipped = true; savePlanNow(); return nextBlock(); }
     }
     const trackId = b.track === 'mix' ? pickMixTrack(b) : b.track;
     const tr = TRACK[trackId];
@@ -542,10 +613,12 @@
   function commit(q, results, rt, confusions) {
     const b = block();
     const scored = !q.pooled && !q.practice;
+    b.played = true;
     S.record({ track: q.track, level: scored ? q.level : -1, items: q.stats, results, rt, confusions, practice: !!q.practice });
     // the first answer ends onboarding; a newcomer never needs the 'updated' notice
     if (!S.state.onboarded) { S.state.onboarded = true; S.state.seen.v2 = true; }
     b.done++;
+    savePlanNow();
     R.answered++;
     if (!q.practice) {
       const sc = avg(results);
@@ -799,9 +872,25 @@
     R.phase = 'summary';
     R.early = early;
     S.setBusy(false);
+    keepStorage();
     R.q = null;
     S.save(true);
     renderSession();
+  }
+  // Ask the browser to keep this site's data: iPhone Safari can otherwise clear it after a week away.
+  function keepStorage() {
+    if (S.mode === 'cloud' || !navigator.storage || !navigator.storage.persist || deviceInfo().persistAsked) return;
+    setDeviceInfo({ persistAsked: Date.now() }); // Firefox shows a prompt, so ask once per device
+    navigator.storage.persisted().then((p) => p || navigator.storage.persist()).catch(() => {});
+  }
+  // A reminder to keep a copy, for progress that lives only in this browser.
+  const DEVICE_KEY = 'tone-ladder-v1-device';
+  function deviceInfo() { try { return JSON.parse(localStorage.getItem(DEVICE_KEY)) || {}; } catch (e) { return {}; } }
+  function setDeviceInfo(patch) { try { localStorage.setItem(DEVICE_KEY, JSON.stringify({ ...deviceInfo(), ...patch })); } catch (e) { /* blocked */ } }
+  function backupDue() {
+    if (S.mode !== 'local' || S.connecting || S.blocked || S.answeredIn(S.state) < 40) return false;
+    const d = deviceInfo(), now = Date.now(), fortnight = 14 * 86400000;
+    return (!d.backupAt || now - d.backupAt > fortnight) && (!d.snoozeUntil || now > d.snoozeUntil);
   }
   function endRunner() {
     if (R) { A.stop(); A.droneStop(0.3); releaseWake(); }
@@ -828,7 +917,7 @@
     const showProgress = R.phase !== 'summary';
     return `<header class="s-head">
       <button class="icon-btn" data-act="exitSession" aria-label="End session" title="End session"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
-      <div class="s-title">${R.phase === 'summary' ? '<strong>Session complete</strong>' : `<span class="s-role">${esc(role)}${b && b.track === 'mix' ? ' · shuffled' : ''}</span><strong>${tr ? esc(tr.name) : 'Everything so far'}</strong>${tr ? `<span class="s-level">Level ${L + 1} · ${esc(tr.levels[L].name)}</span>` : ''}`}</div>
+      <div class="s-title">${R.phase === 'summary' ? '<strong>Session complete</strong>' : `<span class="s-role">${esc(role)}${b && b.track === 'mix' ? ' · shuffled' : ''}</span><strong>${tr ? esc(tr.name) : 'Everything so far'}</strong>${tr ? `<span class="s-level">Level ${L + 1} · ${esc(tr.levels[L].name)}</span>` : ''}${tr && L === S.track(trackId).level && !(b && b.pool) && toGoShort(trackId) ? `<span class="s-togo">${esc(toGoShort(trackId))}</span>` : ''}`}</div>
       ${showProgress ? `<div class="s-progress">
         ${R.plan.length > 1 ? `<div class="blocks-dots" aria-hidden="true">${R.plan.map((x, i) => `<i class="${i < R.bi ? 'done' : i === R.bi ? 'on' : ''}"></i>`).join('')}</div>` : ''}
         <div class="meter"><span style="width:${count ? (done / count) * 100 : 0}%"></span></div>
@@ -959,7 +1048,12 @@
   }
   function levelUpHTML() {
     const u = R.levelUpNow;
-    if (!u) return '';
+    if (!u) {
+      const q = R.q;
+      if (!q || q.pooled || q.level !== S.track(q.track).level) return '';
+      const m = S.mastery(q.track);
+      return m.full && !m.dayOk && !S.nextNeeds(q.track) ? '<div class="levelup"><strong>Level complete for today</strong>A right answer on another day confirms it, after your ear has slept on it.</div>' : '';
+    }
     const tr = TRACK[u.track];
     if (u.complete) return `<div class="levelup"><strong>${esc(tr.name)} complete</strong>You have mastered every level in this track. It stays in your review mix.</div>`;
     const lv = tr.levels[u.to];
@@ -1300,10 +1394,12 @@
   }
 
   function betweenHTML() {
-    const prev = R.plan[R.bi - 1];
+    let pi = R.bi - 1;
+    while (pi > 0 && !R.plan[pi].played && !R.plan[pi].skipped) pi--;
+    const prev = R.plan[pi];
     const b = block();
     const prevName = prev.track === 'mix' ? 'Mixed review' : TRACK[prev.track].name;
-    const prevScore = prev.done === 0 ? 'skipped' : prev.sn ? pct(prev.score / prev.sn) : 'practice rounds only';
+    const prevScore = prev.skipped || !prev.sn && !prev.played ? 'skipped' : prev.sn ? pct(prev.score / prev.sn) : 'practice rounds only';
     const next = b.track === 'mix'
       ? '<p class="lede" style="margin-top:0">Next: <strong>Mixed review</strong>. Questions from the tracks you have practiced, except Sing, shuffled.</p>'
       : `<p class="lede" style="margin-top:0">Next: <strong>${esc(b.role)}</strong>, ${esc(TRACK[b.track].name)}. Level ${levelFor(b) + 1} · ${esc(TRACK[b.track].levels[levelFor(b)].name)}.</p>
@@ -1319,7 +1415,7 @@
   function summaryHTML() {
     const mins = Math.max(1, Math.round((Date.now() - R.started) / 60000));
     const acc = R.sn ? R.score / R.sn : 0;
-    const blocks = R.plan.filter((b) => b.done > 0).map((b) => `<li><span>${esc(b.role)}${b.track === 'mix' ? '' : ' · ' + esc(TRACK[b.track].name)}</span><span class="sc">${b.done} q · ${b.sn ? pct(b.score / b.sn) : 'practice'}</span></li>`).join('');
+    const blocks = R.plan.filter((b) => b.done > b.done0).map((b) => `<li><span>${esc(b.role)}${b.track === 'mix' ? '' : ' · ' + esc(TRACK[b.track].name)}</span><span class="sc">${b.done - b.done0} q · ${b.sn ? pct(b.score / b.sn) : 'practice'}</span></li>`).join('');
     const ups = R.levelUps.map((u) => `<li><span><strong>${esc(TRACK[u.track].name)}</strong> reached level ${u.to + 1}: ${esc(TRACK[u.track].levels[u.to].name)}</span><span class="sc">level up</span></li>`).join('');
     const weak = Object.values(R.itemsSession).filter((s) => s.n >= 2 && s.c / s.n < 0.75).sort((a, b) => a.c / a.n - b.c / b.n).slice(0, 4);
     const weakHTML = weak.map((s) => `<li><span>${esc(TRACK[s.track].short)}: ${esc(itemName(s.track, s.item))}</span><span class="sc">${fmtNum(s.c)} / ${s.n}</span></li>`).join('');
@@ -1335,7 +1431,7 @@
       ${ups ? `<div><p class="eyebrow" style="margin-bottom:8px">Level ups</p><ul class="result-list">${ups}</ul></div>` : ''}
       ${blocks ? `<div><p class="eyebrow" style="margin-bottom:8px">Sets</p><ul class="result-list">${blocks}</ul></div>` : ''}
       ${weakHTML ? `<div><p class="eyebrow" style="margin-bottom:8px">Worth another listen</p><ul class="result-list">${weakHTML}</ul></div>` : ''}
-      <p class="muted">${!R.sn ? 'Practice rounds are not scored. Your progress is saved.' : acc < 0.7 ? 'Lower scores mean the questions are working at the edge of what you can hear. That is where learning happens.' : 'Progress is saved. Missed items will come back sooner in your next sessions.'}</p>
+      <p class="muted">${S.blocked ? 'This session was not saved: a newer version of Tone Ladder saved your progress elsewhere. Reload the page to update.' : !R.sn ? 'Practice rounds are not scored. Your progress is saved.' : acc < 0.7 ? 'Lower scores mean the questions are working at the edge of what you can hear. That is where learning happens.' : 'Progress is saved. Missed items will come back sooner in your next sessions.'}</p>
       <div class="row"><button class="btn primary lg" data-act="go" data-view="today">Done</button>${weak.length ? '<button class="btn lg" data-act="weakRound">Drill the weak spots</button>' : ''}</div>
     </div>`;
   }
@@ -1343,7 +1439,8 @@
   // ======================================================================
   // EXPLORE
   // ======================================================================
-  const EX = { pc: 0, mode: 'major', timbre: null, prev: null, trail: [], dir: 'a', resolve: true };
+  // trail: the chords played in Explore; voicings: exactly what was heard, so a replay sounds the same
+  const EX = { pc: 0, mode: 'major', timbre: null, prev: null, trail: [], voicings: [], dir: 'a', resolve: true };
   const EX_CHORDS = {
     major: [['Diatonic', ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°']], ['Sevenths & inversions', ['V7', 'I6', 'ii6', 'V6']], ['Borrowed from minor', ['iv', '♭III', '♭VI', '♭VII']], ['Secondary dominants', ['V/V', 'V/vi', 'V/ii']]],
     minor: [['Diatonic', ['i', 'ii°', 'III', 'iv', 'v', 'VI', 'VII']], ['Dominant', ['V', 'V7']]],
@@ -1413,7 +1510,8 @@
     const v = TL.voiceChord(TL.rnPcs(name), TL.rnBassPc(name), t, EX.prev);
     EX.prev = v;
     EX.trail.push(name);
-    if (EX.trail.length > 10) EX.trail.shift();
+    EX.voicings.push(v);
+    if (EX.trail.length > 10) { EX.trail.shift(); EX.voicings.shift(); }
     A.play([{ t: 0, notes: v, dur: 1.6, vel: 0.62 }], { timbre: exTimbre() });
     const tr = $('#exTrail');
     if (tr) tr.textContent = EX.trail.join(' → ');
@@ -1520,7 +1618,7 @@
       ['Hear in a key', 'Questions that ask you to name or sing a note start with four chords that set the key (a cadence). You name each note by its place in the key (Do, Re, Mi) rather than as an isolated distance. After each answer the note walks home to Do, so you feel where it pulls.', 'Functional ear training (Alain Benbassat); movable-do solfège as used in the Kodály approach.'],
       ['Sound before symbol', 'You meet each new sound by listening and singing before you are tested on its name. Names attach to sounds you already know, not the other way round.', 'Edwin Gordon’s Music Learning Theory; Kodály.'],
       ['One new thing at a time', 'You start with Do and Sol, which sound very different, and add a single note when the current set is solid. Coarse distinctions come first, fine ones later.', 'Perceptual learning; Gary Karpinski, Aural Skills Acquisition (2000).'],
-      ['Mastery before moving on', 'A level opens when 18 of your last 20 answers are right (16 points of 20 for singing, where Close counts half and practice rounds are not counted), and each new item has been answered correctly a few times. You can always skip ahead if a level is too easy.', 'Mastery learning.'],
+      ['Mastery before moving on', 'A level opens when 18 of your last 20 answers are right (16 points of 20 for singing, where Close counts half and practice rounds are not counted), each new item has been answered correctly a few times, and those answers come from at least two different days, so a night’s sleep has confirmed them. You can always skip ahead if a level is too easy.', 'Mastery learning.'],
       ['Mistakes become contrasts', 'When you confuse two sounds you hear both side by side. The missed item comes back a few questions later, and pairs you often mix up get their own drill on the Progress page.', 'Discrimination training; immediate, informative feedback.'],
       ['Spacing and mixing', 'Items you know come back at growing intervals (1, 2, 4, 8, 16 days). Each session mixes skills. Mixing feels harder at the time and produces more durable learning.', 'Spacing effect (Cepeda et al., 2006); interleaving (Rohrer & Taylor, 2007); “desirable difficulties” (Bjork, 1994).'],
       ['Sing it', 'Singing ties hearing to an internal image of the sound. This is audiation: hearing music in your head, which is what you need to write away from an instrument.', 'Gordon; Kodály.'],
@@ -1670,7 +1768,13 @@
     const v = $('#view');
     if (app.view === 'session') { if (R) renderSession(); else { app.view = 'today'; v.innerHTML = viewToday(); } return; }
     const views = { today: viewToday, track: viewTrack, explore: viewExplore, progress: viewProgress, method: viewMethod, prefs: viewPrefs };
-    v.innerHTML = (views[app.view] || viewToday)();
+    const newer = S.blocked ? `<section class="welcome" style="grid-template-columns:1fr;margin-top:12px"><div>
+        <p class="eyebrow">Update needed</p>
+        <h2>Your progress was saved by a newer version of Tone Ladder</h2>
+        <p>This page is out of date, so it will not save anything until it is reloaded. Reload to get the new version; your progress is safe.</p>
+        <div class="row" style="margin-top:16px"><button class="btn primary" data-act="reload">Reload</button></div>
+      </div></section>` : '';
+    v.innerHTML = newer + (views[app.view] || viewToday)();
   }
 
   // ======================================================================
@@ -1685,7 +1789,11 @@
 
   const ACT = {
     go: (d) => go(d.view, { track: d.track }),
-    startDaily: () => startSession(buildDailyPlan(), { daily: true }),
+    startDaily: () => {
+      const saved = savedPlan();
+      if (planLeft(saved)) { startSession(saved.blocks, { daily: true, day: saved.day }); return; }
+      startSession(buildDailyPlan(), { daily: true, day: TL.dayKey() });
+    },
     practice: (d) => startSession([{ track: d.track, count: FREE_COUNT[d.track], role: 'Practice' }]),
     practiceLevel: (d) => {
       // a higher open level becomes the current one; a lower one is review and leaves mastery alone
@@ -1695,7 +1803,10 @@
       startSession([{ track: d.track, count: FREE_COUNT[d.track], role: L < cur ? 'Review' : 'Practice', level: L < cur ? L : null }]);
     },
     reintro: (d) => { const t = S.track(d.track); if (S.introSeen(d.track, t.level)) t.intro[t.level] = false; startSession([{ track: d.track, count: FREE_COUNT[d.track], role: 'Practice' }]); },
-    skipAhead: (d) => { S.skipAhead(d.track); toast('Moved ahead one level.'); render(); },
+    skipAhead: (d) => {
+      if (S.blocked) { toast('Reload the page first: your progress was saved by a newer version.'); return; }
+      S.skipAhead(d.track); toast('Moved ahead one level.'); render();
+    },
     soundCheck,
     selfTest: async () => {
       const out = $('#selfTestOut');
@@ -1727,7 +1838,7 @@
       if (trackId === 'sing' && L === 0) {
         R.findDoPractice = 2;
         const t = S.track('sing');
-        if (reshow && t.level === 0) { t.window = []; t.levelStats = {}; }
+        if (reshow && t.level === 0) S.resetWindow(t);
       }
       S.markIntro(trackId, L);
       A.stop();
@@ -1747,7 +1858,7 @@
       A.play(events, { raw: true });
     },
     continueBlock: () => { if (R && R.phase === 'between') nextQuestion(); },
-    skipBlock: () => { if (R && R.phase === 'between') { block().count = 0; nextBlock(); } },
+    skipBlock: () => { if (R && R.phase === 'between') { block().skipped = true; savePlanNow(); nextBlock(); } },
     singReveal,
     singGrade: (d) => singGrade(+d.v),
     rListen: () => { if (R && R.q && R.q.kind === 'tap' && R.rPhase !== 'countin' && R.rPhase !== 'tapping') rhythmListen(); },
@@ -1762,7 +1873,7 @@
     },
     drillPair: (d) => startSession([{ track: d.track, count: 12, role: 'Pair drill', pool: [d.a, d.b] }]),
     progTrack: (d) => { progTrack = d.track; render(); },
-    exMode: (d) => { EX.mode = d.mode; EX.prev = null; EX.trail = []; render(); },
+    exMode: (d) => { EX.mode = d.mode; EX.prev = null; EX.trail = []; EX.voicings = []; render(); },
     exNote: (d) => exNote(d.id, +d.semi),
     exChord: (d) => exChord(d.rn),
     exCadence: () => { if (safeAudio()) A.play(TL.cadenceEvents(exTonic(), EX.mode), { timbre: exTimbre() }); },
@@ -1778,18 +1889,20 @@
     },
     exQuality: (d) => { if (safeAudio()) A.play([{ t: 0, notes: TL.chordVoicing(exTonic(), d.q), dur: 1.7, vel: 0.62 }], { timbre: exTimbre() }); },
     exReplayTrail: () => {
-      if (!safeAudio() || !EX.trail.length) return;
-      const v = TL.voiceProgression(EX.trail, exTonic());
+      if (!safeAudio() || !EX.voicings.length) return;
+      const v = EX.voicings;
       A.play(v.map((notes, i) => ({ t: i * 1.0, notes, dur: i === v.length - 1 ? 1.6 : 0.94, vel: 0.62 })), { timbre: exTimbre() });
     },
-    exResetTrail: () => { EX.trail = []; EX.prev = null; render(); },
+    exResetTrail: () => { EX.trail = []; EX.voicings = []; EX.prev = null; render(); },
     exportProgress: () => {
       const text = S.exportText();
-      const fallback = () => { MOVE.copied = text; render(); const t = $('#exportText'); if (t) { t.focus(); t.select(); } };
+      const fallback = () => { if (app.view !== 'prefs') go('prefs'); MOVE.copied = text; render(); const t = $('#exportText'); if (t) { t.focus(); t.select(); } };
       try {
-        navigator.clipboard.writeText(text).then(() => { MOVE.copied = null; toast('Progress copied. Paste it into the other Tone Ladder, under Preferences.', 3600); render(); }, fallback);
+        navigator.clipboard.writeText(text).then(() => { MOVE.copied = null; setDeviceInfo({ backupAt: Date.now() }); toast('Progress copied. Keep it somewhere safe, or paste it into another Tone Ladder under Preferences.', 3600); render(); }, fallback);
       } catch (e) { fallback(); }
     },
+    reload: () => location.reload(),
+    backupLater: () => { setDeviceInfo({ snoozeUntil: Date.now() + 14 * 86400000 }); render(); },
     importOpen: () => { Object.assign(MOVE, { pasting: true, error: '', warn: '', pasted: '' }); render(); const t = $('#importText'); if (t) t.focus(); },
     importCancel: () => { Object.assign(MOVE, { pasting: false, error: '', warn: '', pasted: '' }); render(); },
     importConfirm: (d) => {
@@ -1812,22 +1925,32 @@
         render();
         return;
       }
+      if (S.blocked) { toast('Reload the page first: your progress was saved by a newer version.'); return; }
       S.applyBackup(st);
+      dropPlan();
       Object.assign(MOVE, { pasting: false, error: '', warn: '', pasted: '' });
       applyAudio();
       toast('Progress loaded.');
       render();
     },
     importUndo: () => {
-      if (S.undoImport()) { applyAudio(); toast('Restored the progress from before the paste.'); }
+      if (S.undoImport()) { dropPlan(); applyAudio(); toast('Restored the progress from before the paste.'); }
       render();
     },
     resetArm: () => { resetArmed = true; render(); },
     resetCancel: () => { resetArmed = false; render(); },
-    resetConfirm: () => { S.reset(); resetArmed = false; toast('Progress erased.'); render(); },
+    resetConfirm: () => {
+      if (S.blocked) { toast('Reload the page first: your progress was saved by a newer version.'); return; }
+      S.reset(); dropPlan(); resetArmed = false; toast('Progress erased.'); render();
+    },
     calibrate,
   };
 
+  // a manual copy from the fallback box counts as a backup
+  document.addEventListener('copy', (e) => { if (e.target && e.target.closest && e.target.closest('#exportText')) setDeviceInfo({ backupAt: Date.now() }); });
+  // iOS can suspend or interrupt audio (a call, the lock screen); the next touch brings it back
+  document.addEventListener('pointerdown', () => A.wake(), true);
+  document.addEventListener('keydown', () => A.wake(), true);
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
@@ -1863,7 +1986,7 @@
       if (['keyMode', 'context', 'unlockAll'].includes(k)) render();
       return;
     }
-    if (el.dataset.change === 'exKey') { EX.pc = +el.value; EX.prev = null; EX.trail = []; if (A.droneTonic != null) A.droneStart(exTonic()); render(); }
+    if (el.dataset.change === 'exKey') { EX.pc = +el.value; EX.prev = null; EX.trail = []; EX.voicings = []; if (A.droneTonic != null) A.droneStart(exTonic()); render(); }
     if (el.dataset.change === 'exTimbre') { EX.timbre = el.value; }
     if (el.dataset.change === 'exResolve') { EX.resolve = el.checked; }
     if (el.dataset.hint) { S.settings.hints[el.dataset.hint] = el.value.trim(); S.touch(); }
@@ -1943,7 +2066,10 @@
   });
 
   // ---------- boot ----------
-  S.onChange(() => { if (app.view !== 'session') render(); });
+  S.onChange(() => {
+    if (app.view !== 'session') { render(); return; }
+    if (S.blocked && R && R.phase !== 'summary') finishSession(true);
+  });
   const h = (location.hash || '').replace('#', '');
   if (['explore', 'progress', 'method', 'prefs'].includes(h)) app.view = h;
   applyAudio();

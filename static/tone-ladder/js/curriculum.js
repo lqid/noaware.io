@@ -434,7 +434,13 @@
           reveal: progEvents(v),
         },
         replays: [{ part: 'main', label: 'Replay', key: 'Space' }, { part: 'bass', label: 'Bass line' }],
-        compare: (ans) => progEvents(TL.voiceProgression([seq[0], ...ans], tonic)),
+        // the answer keeps the question's voicings up to the first chord that differs
+        compare: (ans) => {
+          const full = [seq[0], ...ans];
+          let k = 1;
+          while (k < full.length && full[k] === seq[k]) k++;
+          return progEvents(TL.voiceProgression(full, tonic, v.slice(0, k)));
+        },
         explain: seq.map((x) => nameOf(TL.degBySemi(TL.rnBassPc(x)).id, labels)).join(' – '),
         explainLabel: 'Bass line',
         seqLabels: seq,

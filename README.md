@@ -106,7 +106,13 @@ policy error in the console as real.
 Progress is saved in the visitor's browser (`localStorage`). Preferences → Move your progress
 copies it as text and pastes it into another browser, another device, or the claude.ai version.
 A paste is checked before it replaces anything, and can be undone. Saved progress is rebuilt
-field by field on every load, so stale or hand-edited data cannot break the page.
+field by field on every load, so stale or hand-edited data cannot break the page. Today's plan
+is kept on the device (`tone-ladder-v1-plan`), so an interrupted session resumes where it stopped.
+
+Saved progress carries a format number (`FORMAT` in `js/store.js`). Bump it whenever the shape
+of saved data changes. A copy of the app that finds a higher number than its own (an open tab
+from before a deploy, or the claude.ai copy before it is republished) then leaves that progress
+alone and asks for a reload, instead of cleaning it down to the old shape and saving over it.
 The claude.ai copy is republished by hand, so after changing levels in `curriculum.js`,
 republish it too: it refuses progress from a copy with more levels than it has.
 

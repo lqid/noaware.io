@@ -167,6 +167,8 @@ main { outline: none; }
 .setlist .tname { font-weight: 600; }
 .setlist .lv { color: var(--ink-2); }
 .setlist .cnt { font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.setlist li.done { background: transparent; }
+.setlist li.done .tname, .setlist li.done .lv { color: var(--muted); }
 .plan-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: start; }
 @media (max-width: 860px) { .plan-grid { grid-template-columns: 1fr; } }
 .why-list { display: grid; gap: 14px; }
@@ -181,6 +183,7 @@ main { outline: none; }
 .tcard .lvl { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 .tcard .lvname { font-family: var(--f-display); font-size: 22px; font-weight: var(--w-display); line-height: 1.15; }
 .tcard .meta { font-size: 13px; color: var(--muted); }
+.tcard .meta.togo { color: var(--ink-2); }
 .tcard .actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; }
 .tcard.locked { background: transparent; border-style: dashed; }
 .tcard.locked .lvname { color: var(--muted); }
@@ -194,6 +197,7 @@ main { outline: none; }
 .s-title strong { font-size: 16px; }
 .s-title .s-role { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
 .s-title .s-level { color: var(--ink-2); font-size: 14px; }
+.s-title .s-togo { color: var(--muted); font-size: 12.5px; font-family: var(--f-mono); }
 .s-progress { display: grid; gap: 5px; justify-items: end; }
 .s-progress .meter { width: 100%; }
 .s-progress .count { font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
