@@ -2,7 +2,8 @@
 
 The website of Mono No Aware Studios, an independent games and music studio in Melbourne,
 Australia. One static page built with [Hugo](https://gohugo.io) (no theme, no JavaScript,
-no third-party requests), deployed to GitHub Pages at <https://noaware.io>.
+no third-party requests), deployed to GitHub Pages at <https://noaware.io>. It also hosts
+[Tone Ladder](#tone-ladder-tone-ladder), an ear-training app, as a separate static page.
 
 ## Run locally
 
@@ -81,6 +82,44 @@ page's "More concept art" link appears by itself once the page exists.
 
 The About section's contact rows read `params.links` in `hugo.toml` (GitHub, LinkedIn, and the
 Spotify and Apple Music artist pages). The email address is `params.email`.
+
+## Tone Ladder (`/tone-ladder/`)
+
+An ear-training course for composers, published at <https://noaware.io/tone-ladder/>. It is
+unlisted: nothing on the studio page links to it, and it carries `noindex`. All of it is in
+`static/tone-ladder/`, which Hugo copies as is (no build step, no templates):
+
+| What | Where |
+| --- | --- |
+| The page (markup, meta, Content Security Policy) | `static/tone-ladder/index.html` |
+| App styles | `static/tone-ladder/app.css` |
+| Studio look: fonts from `/fonts/`, paper palette | `static/tone-ladder/studio.css` |
+| The app: theory, sound, curriculum, progress, screens | `static/tone-ladder/js/` |
+
+Unlike the studio page it runs JavaScript, but only its own files, and it still makes no
+third-party requests: the sound is synthesized in the browser and the fonts are the studio's.
+Its policy allows its own scripts, styles, fonts and images, plus inline styles (the note
+colors are set as style attributes), and nothing else. `hugo server` serves the page as a plain
+file: it does not inject its live-reload script, so refresh by hand after an edit, and treat any
+policy error in the console as real.
+
+Progress is saved in the visitor's browser (`localStorage`). Preferences → Move your progress
+copies it as text and pastes it into another browser, another device, or the claude.ai version.
+A paste is checked before it replaces anything, and can be undone. Saved progress is rebuilt
+field by field on every load, so stale or hand-edited data cannot break the page.
+The claude.ai copy is republished by hand, so after changing levels in `curriculum.js`,
+republish it too: it refuses progress from a copy with more levels than it has.
+
+The same app also runs as a private claude.ai artifact, where progress is saved to the claude.ai
+account. To update that copy, build its page and publish it with the scripts beside it:
+
+```sh
+node tone-ladder/artifact.mjs /tmp/tone-ladder.html
+```
+
+then publish `/tmp/tone-ladder.html` with `static/tone-ladder/js/*.js` as `js/*.js`. The output
+inlines `app.css`, uses the app's original fonts from Google Fonts (which claude.ai allows),
+and leaves out the parts marked `site-only` in `index.html`.
 
 ## Fonts
 

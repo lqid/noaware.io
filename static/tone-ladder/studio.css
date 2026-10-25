@@ -1,0 +1,93 @@
+/* Tone Ladder on noaware.io: the studio's own fonts (self-hosted in /fonts/) and its paper
+   palette, layered over app.css. The scale-degree colors are the app's and stay as they are.
+   The claude.ai version does not load this file. */
+
+@font-face {
+  font-family: "Cormorant Garamond";
+  font-style: normal;
+  font-weight: 300 500;
+  font-display: swap;
+  src: url("/fonts/cormorant-garamond-normal-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  font-style: italic;
+  font-weight: 300 400;
+  font-display: swap;
+  src: url("/fonts/cormorant-garamond-italic-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Instrument Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/fonts/instrument-sans-normal-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* The claude.ai viewer supplies these basics; a plain page has to set them itself. app.css already
+   keeps the phone nav and the practice screen clear of the safe areas; this covers the rest. */
+body { margin: 0; }
+.top { padding-top: calc(18px + env(safe-area-inset-top, 0px)); }
+@media (min-width: 761px) { .app { padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px)); } }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+
+/* Studio palette (assets/css/main.css): paper, ink, hairline, panel, terracotta. */
+:root {
+  --bg: #F3EFE7;
+  --surface: #FAF7F1;
+  --surface-2: #E9E3D8;
+  --ink: #1F1B17;
+  --ink-2: #4A433B;
+  --muted: #6F675C;
+  --line: #D8D0C2;
+  --accent: #A9482E;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #F0DDD3;
+  --good: #2F6B45;
+  --good-soft: #DCEBDD;
+  --bad: #A3243F;
+  --bad-soft: #F3DCE0;
+  --rung-l: 0.935;
+  --f-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --f-body: "Instrument Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --f-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Cormorant Garamond is cut to 500 upright and 400 italic; heavier would be faked. */
+  --w-display: 500;
+  --w-display-italic: 400;
+  --shadow: 0 1px 2px rgb(31 27 23 / 0.06), 0 6px 22px rgb(31 27 23 / 0.06);
+}
+/* The studio page is light only; the app keeps a dark mode for evening practice, in warm ink. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151310; --surface: #1D1A16; --surface-2: #27231E; --ink: #EFE9DF; --ink-2: #C9C0B2; --muted: #9A9083; --line: #36312A;
+    --accent: #D9734F; --accent-ink: #1A0F0A; --accent-soft: #3B2219;
+    --good: #6CC48F; --good-soft: #16301F; --bad: #F06A86; --bad-soft: #3A1A22;
+    --rung-l: 0.27;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 26px rgb(0 0 0 / 0.25);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151310; --surface: #1D1A16; --surface-2: #27231E; --ink: #EFE9DF; --ink-2: #C9C0B2; --muted: #9A9083; --line: #36312A;
+  --accent: #D9734F; --accent-ink: #1A0F0A; --accent-soft: #3B2219;
+  --good: #6CC48F; --good-soft: #16301F; --bad: #F06A86; --bad-soft: #3A1A22;
+  --rung-l: 0.27;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 26px rgb(0 0 0 / 0.25);
+}
+
+/* Cormorant Garamond's default figures are old-style (a 0 reads as an o, a 7 hangs below the line);
+   lining figures read as numbers and keep V7 and I6 on the baseline. */
+body { font-variant-numeric: lining-nums; }
+.num, .tab { font-variant-numeric: lining-nums tabular-nums; }
+
+/* Cormorant Garamond sits smaller than the app's original display face; give the big type room. */
+.hero h1 { font-size: clamp(42px, 6.6vw, 66px); }
+.fb .big { font-size: 58px; }
+.sing-target { font-size: 92px; }
+
+.studio-foot { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.studio-foot a { color: var(--ink-2); text-decoration: underline; text-underline-offset: .12em; }
+.in-session .studio-foot { display: none; }
