@@ -3,3 +3,4 @@ resources/
 .hugo_build.lock
 .DS_Store
 tone-ladder/pitch-harness/.cache/
+tone-ladder/pitch-harness/takes/*.wav

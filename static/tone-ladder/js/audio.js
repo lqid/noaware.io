@@ -1,7 +1,8 @@
 /* Tone Ladder — audio engine. All sound is synthesized with Web Audio:
    piano, electric piano, strings, organ and a pure tone, plus metronome clicks,
-   a rhythm voice and a tonic drone. It also opens the microphone for grading singing;
-   that sound is analysed in the page and never stored or sent. */
+   a rhythm voice and a tonic drone. It also opens the microphone for grading singing; that sound
+   is analysed in the page and never sent. The current answer's sound is held in memory until the
+   next question, so the learner can save it ("Save this take") if a grade looks wrong. */
 (function (g) {
   const TL = g.TL || (g.TL = {});
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -11,6 +12,11 @@
   let lastStop = -1;
   let spans = []; // what the app has scheduled, pruned by the audio clock (timers can run ahead of it)
   let mic = null, micPending = null, micGen = 0;
+  // the current take: chunks of sound from js/take-worklet.js, at most TAKE_SEC of it. One recorder
+  // per context, reused by every mic; `gen` numbers the take, so a late chunk of an old one is dropped.
+  const TAKE_URL = 'js/take-worklet.js', TAKE_SEC = 45, TAKE_KEEP = 8192;
+  let takeMod = null, takeTries = 0, takeNode = null;
+  const take = { on: false, gen: 0, chunks: [], len: 0 };
   const BT = /airpods|bluetooth|hands-?free|headset|buds|beats/i;
   // where a headset's mic is swapped out, only for one that is plainly the computer's own
   const BUILTIN = /built-?in|internal|macbook|imac|microphone array/i;
@@ -416,8 +422,9 @@
             const sink = ctx.createGain(); sink.gain.value = 0;
             src.connect(an); an.connect(sink); sink.connect(ctx.destination);
             const settings = track && track.getSettings ? track.getSettings() : {};
-            mic = { stream, track, src, an, sink, buf: new Float32Array(an.fftSize), label: (track && track.label) || '', settings, bluetooth: !!(track && BT.test(track.label)) };
+            mic = { stream, track, src, an, sink, buf: new Float32Array(an.fftSize), label: (track && track.label) || '', settings, bluetooth: !!(track && BT.test(track.label)), take: null };
           } catch (e) { stopAll(stream); throw e; }
+          attachTake(mic);
           if (track) {
             track.addEventListener('ended', () => { if (mic && mic.track === track) { A.micClose(); if (A.onMic) A.onMic('ended'); } });
             track.addEventListener('mute', () => { if (A.onMic) A.onMic('mute'); });
@@ -437,15 +444,65 @@
       return mic.buf;
     },
     micRate() { return ctx ? ctx.sampleRate : 48000; },
-    micInfo() { return mic ? { label: mic.label, settings: mic.settings, bluetooth: mic.bluetooth } : null; },
+    // What explains the sound, not what identifies the device: no device or group ids, and an
+    // owner's name taken out of a label ("Daniel's AirPods Pro" → "AirPods Pro").
+    micInfo() {
+      if (!mic) return null;
+      const keep = ['sampleRate', 'sampleSize', 'channelCount', 'echoCancellation', 'noiseSuppression', 'autoGainControl', 'voiceIsolation', 'latency'];
+      const settings = {};
+      for (const k of keep) if (mic.settings && mic.settings[k] !== undefined) settings[k] = mic.settings[k];
+      const label = mic.label.replace(/[^\s()]+['’]s\s+/gu, '');
+      return { label, settings, bluetooth: mic.bluetooth, kind: mic.bluetooth ? 'bluetooth' : BUILTIN.test(mic.label) ? 'built-in' : 'other' };
+    },
     micClose() {
       micGen++; // a request still waiting for the browser is dropped when it answers
       micPending = null;
       if (!mic) { micSession(); return; }
       const m = mic; mic = null;
       m.stream.getTracks().forEach((t) => t.stop());
-      try { m.src.disconnect(); m.an.disconnect(); m.sink.disconnect(); } catch (e) { /* gone */ }
+      // (the recorder stays on through a closed mic, as when the page is hidden: the take resumes,
+      // with a gap, when the mic opens again)
+      try { m.src.disconnect(); m.an.disconnect(); m.sink.disconnect(); if (m.take) m.take.disconnect(); } catch (e) { /* gone */ }
       micSession();
+    },
+
+    // ---------- the current take ----------
+    // Keep the sound from now on, with the moments just before (and forget the last take). Only
+    // while a Sing question listens.
+    takeStart() {
+      take.gen++; take.on = true; take.chunks = []; take.len = 0;
+      if (mic && mic.take) mic.take.port.postMessage({ on: true, gen: take.gen });
+      else if (mic) attachTake(mic); // the recorder failed to load earlier: try again
+    },
+    // The answer is over; its last chunk is still on its way and belongs to it.
+    takeStop() {
+      take.on = false;
+      if (mic && mic.take) mic.take.port.postMessage({ on: false });
+    },
+    takeForget() { A.takeStop(); take.gen++; take.chunks = []; take.len = 0; },
+    get takeReady() { return !!(mic && mic.take); },
+    get takeHas() { return take.chunks.length > 0; },
+    get takeSec() { return TAKE_SEC; },
+    // The take so far: { rate, from (audio frame of the first sample), samples, gaps }. A long stretch
+    // with the mic closed (the page hidden) is cut down to TAKE_KEEP frames of silence, the longest
+    // analysis window, and listed in `gaps` as [frames from `from` where the cut starts, frames cut],
+    // so times still map to samples (js/take.js).
+    takeSound() {
+      if (!take.chunks.length || !ctx) return null;
+      const ch = take.chunks.slice().sort((a, b) => a.from - b.from);
+      const from = ch[0].from, gaps = [];
+      let end = from, cut = 0;
+      for (const c of ch) {
+        if (c.from - end > TAKE_KEEP) { gaps.push([end + TAKE_KEEP - from, c.from - end - TAKE_KEEP]); cut += c.from - end - TAKE_KEEP; }
+        end = Math.max(end, c.from + c.data.length);
+      }
+      const samples = new Float32Array(end - from - cut);
+      for (const c of ch) {
+        let before = 0;
+        for (const [at, len] of gaps) if (c.from - from >= at + len) before += len;
+        samples.set(c.data.subarray(0, Math.max(0, Math.min(c.data.length, samples.length - (c.from - from - before)))), c.from - from - before);
+      }
+      return { rate: ctx.sampleRate, from, samples, gaps };
     },
     // Offline render of a single note, used by the self-test in Preferences.
     async renderTest(timbre = 'piano', midi = 69) {
@@ -464,6 +521,40 @@
       return { peak, hz: zc / ((s1 - s0) / 44100) };
     },
   };
+
+  // "Save this take": a recorder in the audio thread beside the analyser. It is set up once the mic
+  // is open and never holds the mic up; a browser without AudioWorklet simply has no takes.
+  function attachTake(m) {
+    if (!ctx.audioWorklet || typeof AudioWorkletNode === 'undefined' || m.take) return;
+    if (!takeMod) {
+      if (takeTries >= 3) return;
+      // a failed module load is remembered per URL on this context, so a retry needs a new URL
+      const url = takeTries++ ? `${TAKE_URL}?r=${takeTries}` : TAKE_URL;
+      takeMod = ctx.audioWorklet.addModule(url).catch((e) => { takeMod = null; throw e; });
+    }
+    takeMod.then(() => {
+      if (mic !== m || m.take) return; // closed meanwhile
+      if (!takeNode) {
+        // mixed down to one channel the way the analyser hears it (a stereo interface, say)
+        takeNode = new AudioWorkletNode(ctx, 'tl-take', {
+          numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+          channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers',
+          processorOptions: { pre: m.an.fftSize },
+        });
+        takeNode.port.onmessage = (e) => takeAdd(e.data);
+        takeNode.onprocessorerror = () => { takeNode = null; };
+      }
+      m.src.connect(takeNode); takeNode.connect(m.sink); // the silent path keeps it running
+      m.take = takeNode;
+      if (take.on) takeNode.port.postMessage({ on: true, gen: take.gen });
+    }, () => { /* no takes on this device */ });
+  }
+  function takeAdd(c) {
+    if (!c || !c.data || c.gen !== take.gen) return;
+    take.chunks.push(c); take.len += c.data.length;
+    const cap = TAKE_SEC * (ctx ? ctx.sampleRate : 48000);
+    while (take.len > cap && take.chunks.length > 1) take.len -= take.chunks.shift().data.length;
+  }
 
   // back to the playback session, which ignores the ringer switch on iPhone
   function micSession() {

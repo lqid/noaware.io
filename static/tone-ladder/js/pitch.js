@@ -21,6 +21,10 @@
 (function (g) {
   const TL = g.TL || (g.TL = {});
 
+  // Saved takes record this, so a take can be told apart from the grading it was made under.
+  // Change it whenever the grading changes.
+  const VERSION = '2026-10-27';
+
   // ---------- tuning ----------
   const F_LO = 62;            // Hz. Below E2 with room for a low voice; above 60 Hz mains hum, whose
                               // period then stays out of range.
@@ -1306,6 +1310,6 @@
     return { push, reset, status, result };
   }
 
-  TL.Pitch = { detect, listener };
+  TL.Pitch = { detect, listener, version: VERSION };
   if (typeof module !== 'undefined') module.exports = TL.Pitch;
 })(typeof window !== 'undefined' ? window : globalThis);

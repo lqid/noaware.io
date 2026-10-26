@@ -346,6 +346,8 @@ main { outline: none; }
 .mic-trace text.tgt { fill: var(--ink); font-weight: 700; }
 .mic-trace path { fill: none; stroke: var(--muted); stroke-opacity: .7; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
 .mic-trace line.note { stroke: var(--ink); stroke-width: 5; stroke-linecap: round; }
+.take-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 64ch; font-size: 13.5px; color: var(--ink-2); }
+.take-row .muted { font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { .mic-meter i { transition: none; } }
 
 /* intro */

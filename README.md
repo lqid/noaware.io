@@ -111,14 +111,18 @@ is kept on the device (`tone-ladder-v1-plan`), so an interrupted session resumes
 
 The Sing track can check singing through the microphone (`js/pitch.js` hears the notes;
 `js/audio.js` opens the mic; `js/app.js` runs the flow). The sound is analysed in the page and
-never stored or sent, and the policy needs no change for it. The choice is kept per device in
+never sent, and the policy needs no change for it. Only the current answer's sound is kept, in
+memory until the next question: "Save this take" writes it to a WAV file on the learner's own
+computer (`js/take-worklet.js` records it, `js/take.js` writes it with what is needed to replay
+it), so a misgraded answer can become a test case. The choice is kept per device in
 `tone-ladder-v1-device`, not in the progress, because microphone access belongs to one browser.
 The mic opens before the first question of a Sing set, never while chords are playing, and
 closes when the set ends. Browsers only offer the mic on https pages, so test phones against a
 deployed copy, not `hugo server` over the local network. The claude.ai copy has no microphone
 access and leaves the feature out. `tone-ladder/pitch-harness/` scores `pitch.js` against
-synthetic singing (rooms, mics, the app's own sound through the speakers); run
-`node tone-ladder/pitch-harness/run.js static/tone-ladder/js/pitch.js` after changing it.
+synthetic singing (rooms, mics, the app's own sound through the speakers), and replays saved
+takes; run `node tone-ladder/pitch-harness/run.js static/tone-ladder/js/pitch.js` and
+`node tone-ladder/pitch-harness/takes.js` after changing it.
 
 Saved progress carries a format number (`FORMAT` in `js/store.js`). Bump it whenever the shape
 of saved data changes. A copy of the app that finds a higher number than its own (an open tab
