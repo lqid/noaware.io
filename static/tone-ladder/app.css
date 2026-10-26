@@ -325,6 +325,28 @@ main { outline: none; }
 .pattern span { --h: 25; padding: 10px 14px; border-radius: var(--r-sm); background: var(--tint); box-shadow: inset 0 -3px 0 var(--c); font-weight: 700; font-size: 18px; }
 .pattern span.lit { box-shadow: none; }
 .grade { display: flex; flex-wrap: wrap; gap: 8px; }
+/* sing, checked by the microphone */
+.mic-ask, .mic-panel { display: grid; gap: 10px; max-width: 60ch; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.mic-ask p { color: var(--ink-2); }
+.mic-meter { --lv: 0; width: min(320px, 100%); height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.mic-meter i { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(var(--lv)); background: var(--muted); transition: transform .06s linear; }
+.mic-meter.voiced i { background: var(--accent); }
+.mic-status { color: var(--ink-2); font-size: 14.5px; min-height: 1.5em; }
+.mic-result { display: grid; gap: 12px; width: 100%; max-width: 640px; }
+.mic-verdict { font-size: 16px; color: var(--ink-2); }
+.mic-verdict strong { color: var(--ink); }
+.mic-result.v1 .mic-verdict strong { color: var(--good); }
+.mic-result.v0 .mic-verdict strong { color: var(--bad); }
+.mic-steps span.bad { box-shadow: inset 0 -3px 0 var(--bad); }
+.mic-steps span.bad small { color: var(--bad); }
+.mic-trace { width: 100%; max-width: 520px; height: auto; display: block; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.mic-trace line { stroke: var(--line); stroke-width: 1; }
+.mic-trace line.tgt { stroke: oklch(var(--mark-l) var(--mark-c) var(--h)); stroke-width: 6; stroke-opacity: .35; stroke-linecap: round; }
+.mic-trace text { font-family: var(--f-body); font-size: 13px; fill: var(--muted); text-anchor: end; }
+.mic-trace text.tgt { fill: var(--ink); font-weight: 700; }
+.mic-trace path { fill: none; stroke: var(--muted); stroke-opacity: .7; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.mic-trace line.note { stroke: var(--ink); stroke-width: 5; stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) { .mic-meter i { transition: none; } }
 
 /* intro */
 .intro { display: grid; gap: 22px; }

@@ -1,12 +1,21 @@
 /* Tone Ladder — audio engine. All sound is synthesized with Web Audio:
    piano, electric piano, strings, organ and a pure tone, plus metronome clicks,
-   a rhythm voice and a tonic drone. */
+   a rhythm voice and a tonic drone. It also opens the microphone for grading singing;
+   that sound is analysed in the page and never stored or sent. */
 (function (g) {
   const TL = g.TL || (g.TL = {});
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
   let ctx = null, bus = null, master = null;
   let groups = new Set();
+  let lastStop = -1;
+  let spans = []; // what the app has scheduled, pruned by the audio clock (timers can run ahead of it)
+  let mic = null, micPending = null, micGen = 0;
+  const BT = /airpods|bluetooth|hands-?free|headset|buds|beats/i;
+  // where a headset's mic is swapped out, only for one that is plainly the computer's own
+  const BUILTIN = /built-?in|internal|macbook|imac|microphone array/i;
+  const VIRTUAL = /virtual|aggregate|loopback|stereo mix|cable|blackhole|soundflower|zoom|teams|steam|obs/i;
+  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   let drone = null;
   const waveCache = new WeakMap();
   const noiseCache = new WeakMap();
@@ -248,6 +257,7 @@
         if (!AC) throw new Error('This browser has no Web Audio support.');
         try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* optional */ }
         ctx = new AC({ latencyHint: 'interactive' });
+        ctx.addEventListener('statechange', () => { if (A.onState) A.onState(ctx.state); });
         const ch = buildChain(ctx, ctx.destination);
         bus = ch.bus; master = ch.master;
         master.gain.value = clamp(cfg.volume, 0, 1) * 1.1;
@@ -295,17 +305,32 @@
       }
       // "done" resolves when the last event's nominal duration has elapsed (not the reverb tail)
       const lastNominal = events.reduce((mx, ev) => Math.max(mx, ev.t * scale + (ev.dur ?? 0.5) * scale), 0);
+      h.nominalEnd = t0 + lastNominal;
       h.done = new Promise((res) => {
         h.resolve = res;
         h.timers.push(setTimeout(() => res(!h.cancelled), (t0 - ctx.currentTime + lastNominal + lat) * 1000 + 30));
       });
       h.timers.push(setTimeout(() => { groups.delete(h); try { gnode.disconnect(); } catch (e) { /* gone */ } }, (end - ctx.currentTime) * 1000 + 3000));
       groups.add(h);
+      spans.push(h);
       return h;
     },
+    // True while a note the app played is still sounding at full strength through the speakers
+    // (output latency included). Its release and the reverb tail after it are left to the pitch
+    // listener, which tells them from a voice by level, so a learner who starts singing as the
+    // chords stop is heard from the start.
+    playing() {
+      if (!ctx) return false;
+      const until = ctx.currentTime - A.latency() - 0.2;
+      spans = spans.filter((h) => !h.cancelled && h.nominalEnd > until);
+      return !!drone || lastStop > until || spans.length > 0;
+    },
+    // The audio clock only moves while the context runs; the mic listener must pause otherwise.
+    get running() { return !!ctx && ctx.state === 'running'; },
     stop() {
       if (!ctx) return;
       const now = ctx.currentTime;
+      if (groups.size) lastStop = now + 0.04;
       for (const h of groups) {
         h.cancelled = true;
         h.timers.forEach(clearTimeout);
@@ -349,6 +374,79 @@
       setTimeout(() => { try { d.gnode.disconnect(); } catch (e) { /* gone */ } }, (fade + 0.3) * 1000);
     },
     get droneTonic() { return drone ? drone.tonic : null; },
+
+    // ---------- microphone ----------
+    micSupported() { return !!(g.isSecureContext !== false && g.navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia); },
+    get micOn() { return !!mic; },
+    get micMuted() { return !!(mic && mic.track && mic.track.muted); },
+    // Resolves with the open track's label; rejects with the browser's error (NotAllowedError,
+    // NotFoundError, ...), or with an error marked tlClosed when micClose() ran before the browser answered.
+    // Raw capture: echo cancellation, noise suppression and automatic gain all bend pitch or fade a
+    // held note. A Bluetooth headset's mic would drop its sound to call quality, so on a computer
+    // the built-in mic is used instead when there is one.
+    micOpen(deviceId) {
+      A.ensure();
+      if (mic) return Promise.resolve(mic.label);
+      if (micPending) return micPending;
+      const gen = micGen;
+      // iOS: recording needs the play-and-record session; 'playback' (set above) would block it
+      try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) { /* optional */ }
+      const raw = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+      const ask = (id) => navigator.mediaDevices.getUserMedia({ audio: id ? { ...raw, deviceId: { exact: id } } : raw });
+      const stopAll = (st) => { try { st.getTracks().forEach((t) => t.stop()); } catch (e) { /* gone */ } };
+      micPending = ask(deviceId)
+        .then(async (stream) => {
+          let track = stream.getAudioTracks()[0];
+          if (!deviceId && track && BT.test(track.label) && !isIOS()) {
+            try {
+              const devs = await navigator.mediaDevices.enumerateDevices();
+              const alt = devs.find((d) => d.kind === 'audioinput' && BUILTIN.test(d.label) && !BT.test(d.label) && !VIRTUAL.test(d.label) && d.deviceId !== 'default' && d.deviceId !== 'communications');
+              // the headset stream stays open until the built-in one has opened
+              if (alt) { const s2 = await ask(alt.deviceId); stopAll(stream); stream = s2; track = stream.getAudioTracks()[0]; }
+            } catch (e) { /* keep the headset */ }
+          }
+          if (gen !== micGen) { stopAll(stream); const e = new Error('closed'); e.name = 'AbortError'; e.tlClosed = true; throw e; }
+          try {
+            const src = ctx.createMediaStreamSource(stream);
+            const an = ctx.createAnalyser();
+            // about 43 ms of sound at any sample rate (2048 samples at 48 kHz)
+            an.fftSize = Math.min(8192, Math.max(1024, 2 ** Math.round(Math.log2(ctx.sampleRate * 0.043))));
+            an.smoothingTimeConstant = 0;
+            // a silent path to the output keeps every browser pulling audio through the analyser
+            const sink = ctx.createGain(); sink.gain.value = 0;
+            src.connect(an); an.connect(sink); sink.connect(ctx.destination);
+            const settings = track && track.getSettings ? track.getSettings() : {};
+            mic = { stream, track, src, an, sink, buf: new Float32Array(an.fftSize), label: (track && track.label) || '', settings, bluetooth: !!(track && BT.test(track.label)) };
+          } catch (e) { stopAll(stream); throw e; }
+          if (track) {
+            track.addEventListener('ended', () => { if (mic && mic.track === track) { A.micClose(); if (A.onMic) A.onMic('ended'); } });
+            track.addEventListener('mute', () => { if (A.onMic) A.onMic('mute'); });
+            track.addEventListener('unmute', () => { if (A.onMic) A.onMic('unmute'); });
+          }
+          if (ctx.state !== 'running') ctx.resume().catch(() => {});
+          return mic.label;
+        })
+        .catch((e) => { micSession(); throw e; })
+        .finally(() => { if (gen === micGen) micPending = null; });
+      return micPending;
+    },
+    // The latest ~43 ms of samples (one buffer, reused: copy it to keep it), or null when closed or muted.
+    micFrame() {
+      if (!mic || (mic.track && mic.track.muted)) return null;
+      mic.an.getFloatTimeDomainData(mic.buf);
+      return mic.buf;
+    },
+    micRate() { return ctx ? ctx.sampleRate : 48000; },
+    micInfo() { return mic ? { label: mic.label, settings: mic.settings, bluetooth: mic.bluetooth } : null; },
+    micClose() {
+      micGen++; // a request still waiting for the browser is dropped when it answers
+      micPending = null;
+      if (!mic) { micSession(); return; }
+      const m = mic; mic = null;
+      m.stream.getTracks().forEach((t) => t.stop());
+      try { m.src.disconnect(); m.an.disconnect(); m.sink.disconnect(); } catch (e) { /* gone */ }
+      micSession();
+    },
     // Offline render of a single note, used by the self-test in Preferences.
     async renderTest(timbre = 'piano', midi = 69) {
       const OAC = g.OfflineAudioContext || g.webkitOfflineAudioContext;
@@ -366,6 +464,11 @@
       return { peak, hz: zc / ((s1 - s0) / 44100) };
     },
   };
+
+  // back to the playback session, which ignores the ringer switch on iPhone
+  function micSession() {
+    try { if (navigator.audioSession && !mic) navigator.audioSession.type = 'playback'; } catch (e) { /* optional */ }
+  }
 
   TL.Audio = A;
 })(typeof window !== 'undefined' ? window : globalThis);

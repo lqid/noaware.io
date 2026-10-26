@@ -140,13 +140,21 @@
   // ======================================================================
   // TODAY
   // ======================================================================
-  function ladderFigure() {
+  // the notes Scale Degrees has taught so far
+  function learnedDegrees() {
     const t = S.track('degrees');
     const levels = TRACK.degrees.levels;
     const learned = new Set();
     levels.slice(0, t.level).forEach((lv) => lv.items.forEach((i) => learned.add(i)));
     const cur = levels[t.level];
     cur.items.forEach((i) => { if (!cur.introduce.includes(i) || t.complete) learned.add(i); });
+    return learned;
+  }
+  function ladderFigure() {
+    const t = S.track('degrees');
+    const levels = TRACK.degrees.levels;
+    const learned = learnedDegrees();
+    const cur = levels[t.level];
     const next = new Set(t.complete ? [] : cur.introduce.filter((i) => !learned.has(i)));
     const order = ['1', '7', '6', '5', '4', '3', '2', '1'];
     const rung = (id, i) => {
@@ -403,6 +411,7 @@
   function startSession(plan, opts = {}) {
     if (S.blocked) { toast('Reload the page first: your progress was saved by a newer version.'); return; }
     if (!safeAudio()) return;
+    micRelease();
     A.stop();
     R = {
       plan: plan.map((b) => ({ ...b, done: b.done || 0, done0: b.done || 0, score: 0, sn: 0 })), bi: -1, phase: null, q: null, qid: 0, planDay: opts.day,
@@ -427,6 +436,8 @@
     if (R.bi >= R.plan.length) return finishSession();
     const b = block();
     R.retry = [];
+    if (b.track !== 'sing') micRelease();
+    R.micSkip = false; R.micErr = null; R.micGate = null;
     if (b.track === 'mix') { b.tracks = reviewable(); if (!b.tracks.length) { b.skipped = true; savePlanNow(); return nextBlock(); } }
     if (R.played && R.plan.length > 1) { R.phase = 'between'; R.q = null; A.stop(); renderSession(); }
     else { R.played = true; nextQuestion(); }
@@ -434,7 +445,7 @@
 
   function introData(trackId, L, tonic) {
     const st = S.settings;
-    return TRACK[trackId].intro(L, { tonic, hints: st.hints, voice: st.voice, context: st.context, cadenceEvery: st.cadenceEvery, keyMode: st.keyMode, labels: st.labels });
+    return TRACK[trackId].intro(L, { tonic, hints: st.hints, voice: st.voice, context: st.context, cadenceEvery: st.cadenceEvery, keyMode: st.keyMode, labels: st.labels, mic: micAvailable() && !MIC.denied ? micPref() || 'ask' : 'none' });
   }
   function showIntro(trackId, L) {
     const tr = TRACK[trackId];
@@ -445,6 +456,7 @@
       R.key.held = k.changed;
       tonic = k.tonic;
     } else tonic = R.key ? R.key.tonic : tonicForPc(TL.randInt(0, 11));
+    if (A.micOn) micRelease();
     R.phase = 'intro';
     R.q = null;
     R.intro = { trackId, L, tonic, reshow: !!S.track(trackId).intro[L], data: introData(trackId, L, tonic) };
@@ -517,6 +529,7 @@
     const L = b.track === 'mix' ? t.level : levelFor(b);
     const lv = tr.levels[L];
     if (b.track !== 'mix' && !S.introSeen(trackId, L)) return showIntro(trackId, L);
+    if (trackId === 'sing' && micGate()) return;
     const pool = b.pool || lv.items;
     let item;
     if (tr.picksItem) {
@@ -554,6 +567,7 @@
     R.levelUpNow = null;
     R.singMissed = false;
     R.rPhase = null; R.rResult = null; R.rScored = false; R.taps = [];
+    if (q.kind === 'sing') micListen(q); else if (A.micOn) micRelease();
     renderSession();
     let lead = 0.08;
     if (drone) {
@@ -569,12 +583,20 @@
     const evs = part === 'main' ? q.audio.main : part === 'reveal' ? q.audio.reveal : q.audio.parts[part];
     if (!evs || !evs.length) return null;
     const revealing = part === 'reveal' || R.phase !== 'answering';
+    if (!revealing && R.mic && R.mic.L && (R.mic.state === 'listening' || R.mic.state === 'quiet' || R.mic.state === 'missed')) {
+      try { R.mic.L.reset(); } catch (e) { /* the next push reports it */ }
+      R.mic.quietFrom = null;
+      if (R.mic.state !== 'listening') { R.mic.state = 'listening'; renderStage(); }
+    }
     setListening(true);
     const h = A.play(evs, { timbre: q.timbre, lead, onEvent: (ev, i) => litEvent(q, ev, i, revealing) });
     if (part === 'main' && R.phase === 'answering') R.replays++;
     const id = q.id;
+    R.playH = h;
     h.done.then((ok) => {
-      if (!R || !R.q || R.q.id !== id) return;
+      if (!R || !R.q || R.q.id !== id || R.playH !== h) return;
+      const m = R.mic;
+      if (R.phase === 'revealed' && m && m.state === 'heard' && !m.shown && m.qid === id) { m.shown = true; renderStage(); }
       setListening(false);
       if (part === 'main' && ok && R.mainEnd == null) {
         R.mainEnd = performance.now();
@@ -584,12 +606,20 @@
     });
     return h;
   }
+  // While the mic listens, the app's own sound is "Playing", so the pill never reads as "I hear you".
+  function pillLabel(on) {
+    const micOn = R && R.mic && R.mic.state !== 'off';
+    if (on) return micOn ? 'Playing' : 'Listening';
+    if (R && R.phase === 'answering') return R.q && R.q.kind === 'sing' ? 'Your turn: sing' : 'Your turn';
+    if (R && R.phase === 'revealed') return micOn && !R.mic.shown ? 'Sing along' : 'Now grade it';
+    return 'Ready';
+  }
   function setListening(on) {
     const el = $('#listenState');
     if (!el) return;
     el.classList.toggle('idle', !on);
     const label = $('span:last-child', el);
-    if (label) label.textContent = on ? 'Listening' : R && R.phase === 'answering' ? (R.q && R.q.kind === 'sing' ? 'Your turn: sing' : 'Your turn') : R && R.phase === 'revealed' ? 'Now grade it' : 'Ready';
+    if (label) label.textContent = pillLabel(on);
   }
   function flash(el, ms) {
     if (!el) return;
@@ -738,17 +768,264 @@
   const GRADE_NAME = { 1: 'Matched', 0.5: 'Close', 0: 'Missed' };
   function singGrade(v) {
     const q = R && R.q;
-    if (!q || q.kind !== 'sing' || R.phase !== 'revealed') return;
+    if (!q || q.kind !== 'sing' || R.phase !== 'revealed' || ![0, 0.5, 1].includes(v)) return;
+    const heard = R.mic && R.mic.state === 'heard' ? R.mic : null;
+    if (heard && !heard.shown) return; // the answer is still playing: sing along first
     if (q.echoAnswer && R.replays > 1) q.practice = true; // the melody was replayed
+    if (q.copy) {
+      // copying the app is practice for the voice: nothing is recorded
+      R.phase = 'feedback';
+      toast(`${GRADE_NAME[v]} (copy, not scored)`, 1200);
+      const cid = q.id;
+      setTimeout(() => { if (R && R.q && R.q.id === cid) nextQuestion(); }, 600);
+      return;
+    }
+    let misheard = false;
+    if (heard) {
+      // a grade above the app's means it misheard: the round is not scored either way
+      if (v > heard.result.v) { q.practice = true; misheard = true; R.micOverrides = (R.micOverrides || 0) + 1; }
+      if (heard.warmup) q.practice = true;
+      MIC.rounds = micRounds() + 1;
+      setDeviceInfo({ micRounds: MIC.rounds });
+    }
     if (q.level === 0 && !q.practice) R.findDoMisses = v === 0 ? (R.findDoMisses || 0) + 1 : 0;
     commit(q, [v], 0, []);
     if (q.level === 0 && !q.practice && R.findDoMisses >= 2 && !R.levelUpNow) { S.state.findDoPracticeNext = true; S.touch(); }
     R.phase = 'feedback';
     if (v === 0 && q.model) { R.singMissed = true; renderStage(); setListening(false); return; }
     if (R.levelUpNow) { renderStage(); setListening(false); return; }
-    toast(`Saved: ${GRADE_NAME[v]}${q.practice ? ' (practice)' : ''}`, 1100);
+    if (misheard && R.micOverrides === 3) toast('If the app keeps mishearing you, switch to checking yourself in Settings, or try another microphone.', 4200);
+    else toast(misheard ? 'Not scored: the app may have misheard you.' : `Saved: ${GRADE_NAME[v]}${q.practice ? ' (practice)' : ''}`, misheard ? 2200 : 1100);
     const id = q.id;
-    setTimeout(() => { if (R && R.q && R.q.id === id) nextQuestion(); }, 450);
+    setTimeout(() => { if (R && R.q && R.q.id === id) nextQuestion(); }, misheard ? 900 : 450);
+  }
+
+  // ---------- answering: sing, checked by the microphone ----------
+  // The choice is kept per device (microphone access belongs to one browser) and cached here, so a
+  // browser that blocks storage still remembers it for the visit.
+  const MIC = { choice: undefined, rounds: undefined, perm: null, denied: false, timer: null, lastT: -1, gate: 0, test: 0, prefTok: 0, warned: false };
+  function micPref() { if (MIC.choice === undefined) MIC.choice = deviceInfo().mic || null; return MIC.choice; }
+  function micRounds() { if (MIC.rounds === undefined) MIC.rounds = deviceInfo().micRounds || 0; return MIC.rounds; }
+  function setMicPref(v) { MIC.choice = v; setDeviceInfo({ mic: v }); }
+  // The claude.ai copy has no microphone access. Other frames are found out on the first try.
+  const micCopy = () => !!document.querySelector('meta[name="tl-copy"][content="artifact"]');
+  function micPolicy() {
+    const pp = document.permissionsPolicy || document.featurePolicy;
+    try { return pp && pp.allowsFeature ? (pp.allowsFeature('microphone') ? 'yes' : 'no') : 'unknown'; } catch (e) { return 'unknown'; }
+  }
+  const micFramed = () => { try { return window.self !== window.top; } catch (e) { return true; } };
+  const micAvailable = () => typeof TL.Pitch !== 'undefined' && A.micSupported() && micPolicy() !== 'no' && !(micCopy() && micPolicy() !== 'yes');
+  const micWanted = () => micPref() === 'on' && micAvailable() && !MIC.denied;
+  // the browser's own permission state where it reports one: 'granted' | 'denied' | 'prompt' | null
+  async function micPermission() {
+    try {
+      const p = await navigator.permissions.query({ name: 'microphone' });
+      p.onchange = () => { MIC.perm = p.state; if (app.view === 'prefs') render(); };
+      return (MIC.perm = p.state);
+    } catch (e) { return null; }
+  }
+  // what the listener grades: one pitch class held, or a melody, in semitones from Do
+  function singTarget(q) {
+    if (q.pattern) return { kind: 'sequence', semis: q.patternSemis };
+    if (q.echoSemis) return { kind: 'sequence', semis: q.echoSemis };
+    return { kind: 'hold', semis: [DEG[q.deg || q.bassAnswer].semi] };
+  }
+
+  // Before the first question of a Sing set, and after a level's introduction, the mic opens with
+  // nothing playing: a permission prompt, or an iPhone switching to recording, would otherwise land
+  // on the chords that set the key.
+  function micGate() {
+    if (R.micSkip || micPref() === 'off' || !micAvailable() || MIC.denied) return false;
+    if (micPref() === 'on' && A.micOn && A.running) return false;
+    A.stop();
+    R.phase = 'mic';
+    R.q = null;
+    R.mic = null;
+    R.micSlow = false;
+    if (micPref() !== 'on') R.micGate = 'ask';
+    else if (MIC.perm === 'granted' && A.running && document.visibilityState !== 'hidden') { micGo(); return true; } // permission is kept: no tap needed
+    else R.micGate = 'start';
+    renderSession();
+    return true;
+  }
+  function micGo() {
+    if (!R || R.phase !== 'mic') return;
+    setMicPref('on');
+    A.ensure(); A.wake();
+    R.micGate = 'opening';
+    renderSession();
+    const gen = ++MIC.gate;
+    const live = () => !!R && R.phase === 'mic' && MIC.gate === gen;
+    setTimeout(() => { if (live() && R.micGate === 'opening') { R.micSlow = true; renderStage(); } }, 6000);
+    A.micOpen()
+      .then(() => new Promise((res) => setTimeout(res, 300))) // let an audio route change settle
+      .then(() => {
+        if (!live()) return;
+        MIC.prefErr = null;
+        micPermission();
+        if (document.visibilityState === 'hidden') { A.micClose(); R.micGate = 'start'; renderStage(); return; }
+        if (!A.running) { R.micGate = 'tap'; renderStage(); return; }
+        nextQuestion();
+      }, (e) => micOpenFailed(e, live));
+  }
+  async function micOpenFailed(e, live) {
+    const name = (e && e.name) || '';
+    if ((e && e.tlClosed) || !live()) return;
+    let err = 'other';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      const st = await micPermission();
+      if (/system/i.test((e && e.message) || '')) err = 'system';
+      else if (st === 'prompt') err = 'dismissed'; // the prompt was closed, not refused: ask again next set
+      else { err = micFramed() || micCopy() ? 'framed' : 'blocked'; setMicPref('off'); MIC.denied = true; }
+    } else if (name === 'NotFoundError' || name === 'OverconstrainedError') err = 'none';
+    else if (name === 'NotReadableError') err = 'busy';
+    if (!live()) return;
+    R.micSkip = true;
+    R.micGate = 'error';
+    R.micErr = err;
+    renderStage();
+  }
+  // the learner checks themselves for the rest of this set
+  function micSkipSet() {
+    if (!R) return;
+    R.micSkip = true;
+    micRelease();
+    if (R.phase === 'mic') nextQuestion(); else renderStage();
+  }
+
+  // One listener per question, made before anything plays so it hears how loud the app is.
+  function micListen(q) {
+    R.mic = null;
+    if (!q || q.kind !== 'sing' || R.micSkip || !micWanted() || !A.micOn) return;
+    const tg = singTarget(q);
+    let L;
+    try { L = TL.Pitch.listener({ sampleRate: A.micRate(), doMidi: CUR.voiceTonic(q.tonic, S.settings.voice), kind: tg.kind, target: tg.semis }); } catch (e) { micBroken(e); return; }
+    R.mic = { qid: q.id, L, kind: tg.kind, state: 'listening', result: null, shown: false, nulls: 0, quietFrom: null, pause: null };
+    if (A.micMuted) { R.mic.state = 'paused'; R.mic.pause = 'muted'; }
+    MIC.lastT = -1;
+    if (!MIC.timer) MIC.timer = setInterval(micTick, 20);
+  }
+  function micBroken(e) {
+    if (!MIC.warned) { MIC.warned = true; console.warn('Tone Ladder: the pitch listener failed, so you check yourself.', e); }
+    if (R && R.mic) { R.mic.state = 'off'; if (R.phase === 'answering') renderStage(); }
+  }
+  function micTick() {
+    if (!A.micOn) { clearInterval(MIC.timer); MIC.timer = null; return; }
+    const m = R && R.mic;
+    if (!m || m.state === 'off' || m.state === 'paused' || m.state === 'heard' || !R.q || R.q.id !== m.qid || R.phase !== 'answering') return;
+    // a stopped audio clock hands back the same frame again and again
+    if (!A.running) return;
+    const t = A.now();
+    if (t <= MIC.lastT) return;
+    MIC.lastT = t;
+    const f = A.micFrame();
+    if (!f) { micPause('muted'); return; }
+    const playing = A.playing();
+    let p, st;
+    try { p = m.L.push(f, t, { appPlaying: playing }); st = m.L.status(t); } catch (e) { micBroken(e); return; }
+    if (playing || R.mainEnd == null) m.quietFrom = null;
+    else if (m.quietFrom == null) m.quietFrom = t;
+    meterMic(p, st);
+    if (m.quietFrom == null) return;
+    if (st.done) { micFinish(false); return; }
+    if (!st.heard && m.state === 'listening' && t - m.quietFrom > 10) { m.state = 'quiet'; renderStage(); }
+  }
+  // Grade what was heard (Done, Enter, or the listener deciding the singing has finished).
+  function micFinish(manual) {
+    const m = R && R.mic;
+    if (!m || R.phase !== 'answering' || R.mainEnd == null || m.state === 'off' || m.state === 'paused') return;
+    let res;
+    try { res = m.L.result(); } catch (e) { micBroken(e); return; }
+    if (res.v == null && res.reason === 'unclear') {
+      // sound was there but not every note could be followed: the learner checks this one
+      m.state = 'off';
+      toast('The app could not follow every note this time. Check yourself.', 2600);
+      singReveal();
+      return;
+    }
+    if (res.v == null) {
+      m.nulls++;
+      // a second Done with nothing to grade: the learner checks themselves
+      if (manual && m.nulls >= 2) { m.state = 'off'; singReveal(); return; }
+      m.state = 'missed';
+      m.reason = res.reason;
+      try { m.L.reset(); } catch (e) { /* the next push reports it */ }
+      renderStage();
+      return;
+    }
+    m.result = res;
+    m.state = 'heard';
+    m.shown = false;
+    if (m.kind === 'hold' && res.v > 0 && res.notes && res.notes.length) {
+      const n = res.notes[Number.isInteger(res.graded) ? res.graded : res.notes.length - 1];
+      const offs = R.micOffs = [...(R.micOffs || []), n.off].slice(-8);
+      const mid = offs.slice().sort((a, b) => a - b)[offs.length >> 1];
+      if (offs.length >= 6 && Math.abs(mid) > 30 && !R.micBiasShown) { m.bias = mid < 0 ? 'low' : 'high'; R.micBiasShown = true; }
+    }
+    // the first few rounds with the microphone (after Find Do) are a warm-up and not scored
+    m.warmup = R.q.level > 0 && !R.q.copy && micRounds() < 3;
+    R.phase = 'revealed';
+    renderStage();
+    // the answer plays while the learner sings along; playPart shows the verdict when it ends
+    if (!playPart('reveal')) { m.shown = true; renderStage(); }
+  }
+  // The mic stopped hearing: page hidden, audio interrupted (a call, Siri), muted by the system or
+  // unplugged. The question waits for a tap, which also lets iOS resume the sound.
+  function micPause(why) {
+    const m = R && R.mic;
+    if (!m || R.phase !== 'answering' || m.state === 'off' || m.state === 'heard' || m.state === 'paused') return;
+    m.state = 'paused';
+    m.pause = why;
+    renderStage();
+  }
+  function micResume() {
+    const m = R && R.mic;
+    if (!m || m.state !== 'paused') return;
+    A.ensure(); A.wake();
+    const go = () => {
+      if (!R || R.mic !== m || m.state !== 'paused') return;
+      MIC.prefErr = null;
+      if (A.micMuted) { m.pause = 'muted'; renderStage(); return; } // still muted: the unmute event resumes it
+      try { m.L.reset(); } catch (e) { /* the next push reports it */ }
+      m.state = 'listening'; m.pause = null; m.quietFrom = null; MIC.lastT = -1;
+      if (!MIC.timer) MIC.timer = setInterval(micTick, 20);
+      renderStage();
+    };
+    if (A.micOn) go();
+    else A.micOpen().then(go, () => { if (R && R.mic === m) { m.state = 'off'; renderStage(); } });
+  }
+  A.onState = (st) => { if (st !== 'running') micPause('clock'); };
+  A.onMic = (ev) => {
+    if (ev === 'mute') micPause('muted');
+    else if (ev === 'unmute' && R && R.mic && R.mic.pause === 'muted') micResume();
+    else if (ev === 'ended') micPause('ended');
+  };
+  // After a miss on a single note: the app plays it and the learner copies it, unscored.
+  function singCopy() {
+    const q = R && R.q;
+    if (!q || q.kind !== 'sing' || R.phase !== 'feedback' || !q.model || !R.mic) return;
+    const c = {
+      ...q, id: ++R.qid, practice: true, copy: true, keyChanged: false,
+      prompt: 'Copy it: listen, then sing the last note again on your own and hold it.',
+      subline: 'A practice round. It does not count.',
+      audio: { ...q.audio, main: q.model },
+      replays: [{ part: 'main', label: 'Replay', key: 'Space' }],
+    };
+    R.q = c;
+    R.phase = 'answering';
+    R.mainEnd = null;
+    R.replays = 0;
+    R.singMissed = false;
+    R.levelUpNow = null;
+    micListen(c);
+    renderSession();
+    playPart('main', 0.1);
+  }
+  // Close the mic: the Sing set or the session ended.
+  function micRelease() {
+    if (MIC.timer) { clearInterval(MIC.timer); MIC.timer = null; }
+    if (R) R.mic = null;
+    A.micClose();
   }
 
   // ---------- answering: rhythm ----------
@@ -866,6 +1143,7 @@
     finishSession(true);
   }
   function finishSession(early = false) {
+    micRelease();
     A.stop();
     A.droneStop(0.5);
     releaseWake();
@@ -893,6 +1171,7 @@
     return (!d.backupAt || now - d.backupAt > fortnight) && (!d.snoozeUntil || now > d.snoozeUntil);
   }
   function endRunner() {
+    micRelease();
     if (R) { A.stop(); A.droneStop(0.3); releaseWake(); }
     R = null;
     S.setBusy(false);
@@ -935,6 +1214,7 @@
     if (!st || !R) return;
     if (R.phase === 'intro') st.innerHTML = introHTML();
     else if (R.phase === 'between') st.innerHTML = betweenHTML();
+    else if (R.phase === 'mic') st.innerHTML = micGateHTML();
     else if (R.phase === 'summary') st.innerHTML = summaryHTML();
     else if (R.q) st.innerHTML = questionHTML();
     refreshHead();
@@ -963,7 +1243,8 @@
     const wait = (r) => q.kind === 'sing' && r.part !== 'main' && R.mainEnd == null && R.phase === 'answering';
     const replays = (q.replays || []).map((r) => `<button class="btn sm" data-act="replay" data-part="${r.part}"${wait(r) ? ' disabled data-needs-main' : ''}>${esc(r.label)}${r.key ? ' <kbd>Space</kbd>' : ''}</button>`).join('');
     const top = `<div class="q-top"><p class="q-prompt">${esc(q.prompt)}</p>${keyLine}</div>`;
-    const listen = `<span class="listen-state" id="listenState"><i class="pulse"></i><span>Listening</span></span>`;
+    const sounding = A.playing();
+    const listen = `<span class="listen-state${sounding ? '' : ' idle'}" id="listenState"><i class="pulse"></i><span>${pillLabel(sounding)}</span></span>`;
     if (q.kind === 'tap') return top + rhythmHTML();
     if (q.kind === 'sing') return top + `<div class="q-replays">${replays}${listen}</div>` + singHTML();
     const body = q.kind === 'choice' ? choiceBodyHTML() : seqBodyHTML();
@@ -1199,9 +1480,26 @@
       if (q.bassAnswer) { const d = degText(q.bassAnswer); after = `<p class="muted">The bass was <strong>${esc(d.main)}</strong>.</p>`; }
     }
     const melodyLike = !!(q.pattern || q.echoAnswer);
+    const heard = R.mic && R.mic.result && R.mic.state === 'heard' ? R.mic.result : null;
+    const shown = heard && R.mic.shown;
+    if (shown && R.phase !== 'answering') after = micResultHTML(q, heard);
     let controls;
-    if (R.phase === 'answering') {
+    if (R.phase === 'answering' && R.mic && R.mic.state !== 'off') {
+      controls = micPanelHTML(q);
+    } else if (R.phase === 'answering') {
       controls = `<button class="btn primary lg" data-act="singReveal"${R.mainEnd == null ? ' disabled data-needs-main' : ''}>I sang it: play the answer <kbd>Enter</kbd></button>`;
+    } else if (R.phase === 'revealed' && heard && !shown) {
+      controls = `<p class="tip">${melodyLike ? 'Sing it again along with the answer. Same notes?' : 'Sing your note again along with the answer. Do they melt into one sound?'}</p>`;
+    } else if (R.phase === 'revealed' && heard) {
+      const sug = heard.v;
+      const gb = (v, label, key) => `<button class="btn${v === sug ? ' primary' : ''}" data-act="singGrade" data-v="${v}">${label}${v === sug ? ' · the app’s grade' : v > sug ? ' · it misheard me' : ''} <kbd>${v === sug ? 'Enter' : key}</kbd></button>`;
+      const replayed = q.echoAnswer && R.replays > 1;
+      controls = `${replayed ? '<p class="tip">You replayed the melody, so this round is practice. It does not count for or against you.</p>' : R.mic.warmup ? '<p class="tip">A warm-up round with the microphone: it does not count yet.</p>' : ''}
+        <div class="grade">
+          ${gb(1, 'Matched', 1)}${gb(0.5, 'Close', 2)}${gb(0, 'Missed', 3)}
+          <button class="btn ghost" data-act="replay" data-part="reveal">Hear it again</button>
+        </div>
+        <p class="muted" style="font-size:13.5px;max-width:60ch"><span class="kbd-only">Enter keeps the app’s grade. </span>If you know you were further off, choose a lower grade. If the app misheard you, choose what you sang: that round is not scored either way.</p>`;
     } else if (R.phase === 'revealed') {
       const replayed = q.echoAnswer && R.replays > 1;
       controls = `${replayed ? '<p class="tip">You replayed the melody, so this round is practice. It does not count for or against you.</p>' : ''}
@@ -1217,13 +1515,209 @@
       const twoMiss = q.level === 0 && !R.levelUpNow && (R.findDoMisses || 0) >= 2;
       controls = `<p class="tip">${esc(q.missTip)}</p>
         ${twoMiss ? '<p class="tip">Two misses in a row, so your next Find Do round plays Do for you to copy.</p>' : ''}
-        <div class="row"><button class="btn" data-act="replay" data-part="model">${esc(q.missLabel)}</button></div>
+        <div class="row"><button class="btn" data-act="replay" data-part="model">${esc(q.missLabel)}</button>${heard && A.micOn ? '<button class="btn" data-act="singCopy">Copy it with the app</button>' : ''}</div>
         ${levelUpHTML()}${struggleHTML(q)}
         <div class="row"><button class="btn primary" data-act="next">Continue <kbd>Enter</kbd></button></div>`;
     } else {
       controls = `${levelUpHTML()}<div class="row"><button class="btn primary" data-act="next">Continue <kbd>Enter</kbd></button></div>`;
     }
     return `<div class="sing">${target}<p class="muted" style="max-width:60ch">${esc(q.subline)}</p>${after}${controls}</div>`;
+  }
+  // ----- sing: the microphone -----
+  function micUnblockHint() {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'In Safari, tap the aA button in the address bar, then Website Settings, and set Microphone to Allow.';
+    if (/Firefox\//.test(ua)) return 'Click the permissions icon at the left of the address bar and remove the block on the microphone.';
+    if (/Edg\/|Chrome\//.test(ua)) return 'Click the site controls at the left of the address bar and set Microphone to Allow.';
+    if (/Safari\//.test(ua)) return 'In Safari, choose Settings, then Websites, then Microphone, and set this site to Allow.';
+    return 'Allow the microphone for this site in the browser’s settings.';
+  }
+  const MIC_ERR = {
+    blocked: () => `The browser blocked the microphone, so you check yourself. To use it: ${micUnblockHint()} Then turn it on again in Settings.`,
+    dismissed: () => 'The microphone request was closed, so you check yourself this set. The app asks again next set.',
+    system: () => 'Your computer’s privacy settings keep this browser from the microphone. Allow it in System Settings, Privacy & Security, Microphone, then reload the page.',
+    framed: () => 'The microphone is not available in this copy of Tone Ladder, so you check yourself. It works at noaware.io/tone-ladder/.',
+    none: () => 'No microphone was found, so you check yourself this set.',
+    busy: () => 'Another app is using the microphone, so you check yourself this set.',
+    other: () => 'The microphone could not start, so you check yourself this set.',
+  };
+  // Shown in place of a question while the mic is being set up.
+  function micGateHTML() {
+    const g = R.micGate;
+    const skip = '<button class="btn ghost" data-act="micSkipSet">Check myself this set</button>';
+    let h2, body, actions;
+    if (g === 'ask') {
+      h2 = 'Let the app hear you?';
+      body = `<p class="lede" style="margin-top:0">In singing questions the app can listen through your microphone and suggest the grade. It is stricter than your own ear, so Missed is normal at first.</p>
+        <p class="muted">The sound is analysed on this device as you sing; nothing is recorded or sent. Your browser shows a microphone light during singing sets, and it goes off when the set ends. You can change this in Settings.</p>`;
+      actions = '<button class="btn primary lg" data-act="micYes">Use the microphone <kbd>Enter</kbd></button><button class="btn ghost" data-act="micNo">I’ll check myself</button>';
+    } else if (g === 'start') {
+      h2 = 'Ready to sing';
+      body = '<p class="lede" style="margin-top:0">The app listens through your microphone during this set.</p>';
+      actions = `<button class="btn primary lg" data-act="micYes">Start <kbd>Enter</kbd></button>${skip}`;
+    } else if (g === 'opening') {
+      h2 = 'Opening the microphone';
+      body = `<p class="lede" style="margin-top:0">Your browser may ask first.</p>${R.micSlow ? '<p class="tip">Still waiting. Look for the microphone request near the address bar.</p>' : ''}`;
+      actions = `<button class="btn primary lg" disabled>Opening… <kbd>Enter</kbd></button>${skip}`;
+    } else if (g === 'tap') {
+      h2 = 'Tap to continue';
+      body = '<p class="lede" style="margin-top:0">The microphone is on. Tap so your browser lets the sound play.</p>';
+      actions = '<button class="btn primary lg" data-act="micTap">Continue <kbd>Enter</kbd></button>';
+    } else {
+      h2 = 'Checking yourself';
+      body = `<p class="lede" style="margin-top:0">${esc((MIC_ERR[R.micErr] || MIC_ERR.other)())}</p>`;
+      actions = '<button class="btn primary lg" data-act="micContinue">Continue <kbd>Enter</kbd></button>';
+    }
+    return `<div class="between mic-gate"><p class="eyebrow">Singing set</p><h2>${h2}</h2>${body}<div class="row">${actions}</div></div>`;
+  }
+  // the line under the meter, from what the listener reports
+  function micLine(q, st) {
+    const m = R.mic;
+    const hold = m.kind === 'hold';
+    const along = q.practice && q.model && (q.copy || q.level === 0);
+    if (R.mainEnd == null || A.playing()) {
+      if (along) return 'Sing along, then sing it once more on your own when it stops.';
+      if (R.mainEnd != null) return 'Listen. Sing when it stops.';
+      return q.echoAnswer ? 'Listen to the chords, then the melody. Sing it back when it ends.' : 'Listen to the chords. Sing when they stop.';
+    }
+    if (m.state === 'quiet') return 'I can’t hear you yet. Sing out loud and closer to the microphone.';
+    if (m.state === 'missed') {
+      const again = m.nulls >= 1 ? ' Or press Done again to check yourself.' : '';
+      if (hold) return (m.reason === 'short' ? 'That was short. Sing it again and hold it for a second or two.' : 'I didn’t hear a held note. Sing it out loud and hold it.') + again;
+      return 'I didn’t catch the notes. Sing them again, a little louder.' + again;
+    }
+    if (!st || !st.heard) return hold ? (q.bassAnswer ? 'Sing or hum the lowest note and hold it. Stop when you are done.' : 'Sing it on its name and hold it. Stop when you are done.') : 'Sing the notes. Stop when you are done.';
+    return hold && st.held >= 1 ? 'Holding a note. Stop when you are done.' : 'Hearing you…';
+  }
+  function micPanelHTML(q) {
+    const m = R.mic;
+    const self = '<button class="btn ghost" data-act="micSkipSet">Check myself instead</button>';
+    if (m.state === 'paused') {
+      const why = { muted: 'The microphone is paused by the browser or another app.', ended: 'The microphone was disconnected.' }[m.pause] || 'The microphone paused while the sound was interrupted or the page was in the background.';
+      return `<div class="mic-panel"><p class="mic-status">${esc(why)}</p><div class="row"><button class="btn primary" data-act="micResume">Listen again <kbd>Enter</kbd></button>${self}</div></div>`;
+    }
+    const info = A.micInfo();
+    const notes = [];
+    if (info && info.settings && (info.settings.echoCancellation === true || info.settings.noiseSuppression === true)) notes.push('This browser keeps its own noise filter on, so long notes may fade. If the grades look wrong, check yourself.');
+    if (info && info.bluetooth) notes.push('With a Bluetooth headset the music sounds like a phone call while the app listens. The speaker or wired headphones sound better.');
+    if (info && info.label && m.state === 'quiet') notes.push(`Listening with: ${info.label}.`);
+    return `<div class="mic-panel">
+      <div class="mic-meter" id="micMeter" aria-hidden="true"><i></i></div>
+      <p class="mic-status" id="micStatus" aria-live="polite">${esc(micLine(q, null))}</p>
+      <div class="row"><button class="btn primary" data-act="micDone"${R.mainEnd == null ? ' disabled data-needs-main' : ''}>Done <kbd>Enter</kbd></button>${self}</div>
+      ${notes.map((n) => `<p class="muted" style="font-size:13px">${esc(n)}</p>`).join('')}
+    </div>`;
+  }
+  // live meter and status while listening, written straight to the DOM (a re-render would flicker)
+  function meterMic(p, st) {
+    const bar = $('#micMeter');
+    if (bar) { bar.style.setProperty('--lv', Math.max(0, Math.min(1, p.level || 0)).toFixed(3)); bar.classList.toggle('voiced', !!p.voiced); }
+    const m = R.mic;
+    if ((m.state === 'quiet' || m.state === 'missed') && st.heard && p.voiced) m.state = 'listening';
+    const el = $('#micStatus');
+    if (!el) return;
+    const txt = micLine(R.q, st);
+    if (el.textContent !== txt) el.textContent = txt;
+  }
+  // A note's name, only once Scale Degrees has taught it; otherwise null.
+  function knownName(semi) {
+    const id = TL.degBySemi(semi).id;
+    return id === '1' || learnedDegrees().has(id) ? degText(id).main : null;
+  }
+  // What the app heard, in words (what was right first), then the pitch trace for anything short of Matched.
+  function micResultHTML(q, res) {
+    const tg = singTarget(q);
+    const v = res.v;
+    const head = v === 1 ? 'Matched' : v === 0.5 ? 'Close' : 'Missed';
+    let line = '';
+    let marks = '';
+    if (tg.kind === 'hold') {
+      const want = degText(TL.degBySemi(tg.semis[0]).id).main;
+      const notes = res.notes || [];
+      const gi = Number.isInteger(res.graded) ? res.graded : notes.length - 1;
+      const n = notes[gi];
+      const off = n ? n.off : 0;
+      const low = off < 0;
+      if (res.reason === 'slid') line = `You reached ${want}, but slid into it. Hear it inside first, then start right on it.`;
+      else if (res.reason === 'wobble') line = `You found ${want}, but your voice wavered. Try a steady “loo”.`;
+      else if (v === 1) line = `You sang ${want}.${Math.abs(off) >= 25 ? ` A little ${low ? 'low' : 'high'}, but clearly ${want}.` : ''}`;
+      else if (v === 0.5) line = `Near ${want}, but ${low ? 'low' : 'high'}: between ${want} and the note ${low ? 'below' : 'above'} it.`;
+      else if (n) {
+        const pc = TL.mod12(n.semi), want0 = TL.mod12(tg.semis[0]);
+        const name = knownName(n.semi);
+        const d = TL.mod12(want0 - pc);
+        const dir = d === 6 ? 'six half steps away' : d < 6 ? 'higher' : 'lower';
+        if (q.bassAnswer && TL.rnPcs(q.item).includes(pc)) line = `You sang a note of the chord${name ? ` (${name})` : ''}, but not its lowest: the bass was ${want}. Listen underneath it.`;
+        else if (q.bassAnswer) line = `${name ? `You sang ${name}.` : 'You sang a different note.'} The bass was ${want}, ${dir}.`;
+        else if (want0 === 0 && (pc === 4 || pc === 7)) line = `You sang another note of the home chord${name ? ` (${name})` : ''}. Do is the one the chords come to rest on.`;
+        else line = `${name ? `You sang ${name}.` : 'You sang a different note.'} ${want} is ${dir}.`;
+        // the hummed steps tell a key-finding slip from a stepping one
+        const first = notes[0];
+        if (q.deg && want0 !== 0 && gi > 0 && first && TL.mod12(first.semi) !== 0) line += ` Your first note was ${knownName(first.semi) || 'not Do'}: find Do from the chords before you step.`;
+      }
+    } else {
+      const steps = res.steps || [];
+      const right = steps.filter((x) => x.ok).length;
+      const way = (res.offset || 0) < 0 ? 'low' : 'high';
+      if (res.reason === 'transposed') line = 'The tune was right, but it started on the wrong note. Find Do from the chords first.';
+      else if (res.reason === 'offset') line = `Every note was in place, but the whole tune sat ${way} against the key, nearly between notes. Hum Do from the chords before you start.`;
+      else if (res.reason === 'drift') line = `The tune was right, but it drifted ${res.drift < 0 ? 'lower' : 'higher'} as you went. Keep Do in your ear.`;
+      else if (v === 1) line = `Every note right.${Math.abs(res.offset || 0) >= 25 ? ` The whole tune sat a little ${way}.` : ''}`;
+      else line = `${right} of ${tg.semis.length} notes right${res.extra ? `, and ${res.extra === 1 ? 'one extra note' : res.extra + ' extra notes'}` : ''}.${res.reason === 'restart' ? ' You started again, so this counts as Close at most.' : ''}`;
+      marks = `<div class="pattern mic-steps">${steps.map((x, i) => {
+        const id = TL.degBySemi(x.want).id;
+        // a note not met yet is described by direction instead of by name
+        const dir = x.got == null ? '' : ((TL.mod12(x.got - x.want) + 6) % 12) - 6 > 0 ? 'you: higher' : 'you: lower';
+        const got = x.ok ? '' : `<small>${x.got == null ? 'missing' : knownName(x.got) ? 'you: ' + esc(knownName(x.got)) : dir}</small>`;
+        return `<span data-deg="${id}" data-i="${i}" class="${x.ok ? 'ok' : 'bad'}" style="--h:${DEG[id].hue}">${esc(degText(id).main)}${got}</span>`;
+      }).join('')}</div>`;
+    }
+    const bias = R.mic && R.mic.bias ? `<p class="tip">Your held notes tend to sit a little ${R.mic.bias}. Breathe low and aim a touch ${R.mic.bias === 'low' ? 'higher' : 'lower'}.</p>` : '';
+    return `<div class="mic-result v${String(v).replace('.', '')}">
+      <p class="mic-verdict"><strong>${head}.</strong> ${esc(line)}</p>${bias}
+      ${marks}${v === 1 && !res.reason?.match(/drift|slid|wobble/) ? '' : micTraceSVG(tg, res)}
+    </div>`;
+  }
+  // The singing against the target notes, folded to the targets' octave: each note as a bold bar
+  // at its middle pitch, over a faint line of the raw pitch.
+  function micTraceSVG(tg, res) {
+    const pts = (res.trace || []).filter((p) => p.cents != null);
+    if (pts.length < 3) return '';
+    const want = tg.semis.map((x) => x * 100);
+    const med = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+    const ns = res.notes || [];
+    const g = tg.kind === 'hold' ? ns[Number.isInteger(res.graded) ? res.graded : ns.length - 1] : null;
+    const k = g ? Math.round((want[0] - g.cents) / 1200) : Math.round((med(want) - med(pts.map((p) => p.cents))) / 1200);
+    const fold = (c) => c + 1200 * k;
+    const ys = pts.map((p) => fold(p.cents));
+    const near = ys.filter((y) => Math.abs(y - med(want)) < 1500);
+    const lo = Math.floor((Math.min(...want, ...near) - 150) / 100);
+    const hi = Math.ceil((Math.max(...want, ...near) + 150) / 100);
+    const t0 = pts[0].t, t1 = Math.max(t0 + 0.5, pts[pts.length - 1].t);
+    const W = 480, H = Math.max(120, Math.min(260, (hi - lo) * 16)), L = 40; // 16 per semitone: Ti and Do labels clear
+    const X = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - 6);
+    const Y = (c) => H - 6 - ((c / 100 - lo) / (hi - lo)) * (H - 12);
+    const wantPcs = new Set(tg.semis.map(TL.mod12));
+    let lanes = '';
+    for (let x = lo; x <= hi; x++) {
+      const d = TL.degBySemi(x);
+      if (!d.diatonic && !wantPcs.has(TL.mod12(x))) continue;
+      const isT = wantPcs.has(TL.mod12(x));
+      const y = Y(x * 100).toFixed(1);
+      lanes += `<line x1="${L}" x2="${W}" y1="${y}" y2="${y}" class="${isT ? 'tgt' : ''}" style="--h:${d.hue}"/><text x="${L - 6}" y="${(+y + 4).toFixed(1)}" class="${isT ? 'tgt' : ''}">${esc(degText(d.id).main)}</text>`;
+    }
+    let path = '', last = null;
+    pts.forEach((p, i) => {
+      const y = ys[i];
+      const gap = !last || p.t - last.t > 0.12 || Math.abs(y - last.y) > 250;
+      path += `${gap ? 'M' : 'L'}${X(p.t).toFixed(1)} ${Y(y).toFixed(1)} `;
+      last = { t: p.t, y };
+    });
+    const bars = (res.notes || []).filter((n) => n.t1 > n.t0).map((n) => {
+      const y = Y(fold(n.cents)).toFixed(1);
+      return `<line class="note" x1="${X(n.t0).toFixed(1)}" x2="${X(n.t1).toFixed(1)}" y1="${y}" y2="${y}"/>`;
+    }).join('');
+    return `<svg class="mic-trace" viewBox="0 0 ${W} ${H}" role="img" aria-label="Your pitch over time, against the target notes">${lanes}<path d="${path.trim()}"/>${bars}</svg>`;
   }
 
   // ----- rhythm -----
@@ -1622,6 +2116,7 @@
       ['Mistakes become contrasts', 'When you confuse two sounds you hear both side by side. The missed item comes back a few questions later, and pairs you often mix up get their own drill on the Progress page.', 'Discrimination training; immediate, informative feedback.'],
       ['Spacing and mixing', 'Items you know come back at growing intervals (1, 2, 4, 8, 16 days). Each session mixes skills. Mixing feels harder at the time and produces more durable learning.', 'Spacing effect (Cepeda et al., 2006); interleaving (Rohrer & Taylor, 2007); “desirable difficulties” (Bjork, 1994).'],
       ['Sing it', 'Singing ties hearing to an internal image of the sound. This is audiation: hearing music in your head, which is what you need to write away from an instrument.', 'Gordon; Kodály.'],
+      ['An honest check', 'Beginners cannot yet hear their own pitch errors, so the app can listen through the microphone. It waits until you finish, without a live pitch display, so you sing from the inner ear rather than chase a needle. Then the answer plays while you sing along, and only after that does it show what it heard. A note counts as right when the nearest semitone is the target. You can always lower the grade; raising it means the app misheard, so that round does not count.', 'Singing-accuracy research (Pfordresher and colleagues); feedback after, not during, the attempt (Guadagnoli and Kohl).'],
       ['Vary what doesn’t matter', 'Keys change, registers widen and instruments can rotate, so you learn how a sound behaves in the key rather than memorizing a particular pitch or timbre.', 'Variability of practice.'],
     ];
     return `<div>
@@ -1663,6 +2158,81 @@
   let resetArmed = false;
   const MOVE = { copied: null, pasting: false, error: '', warn: '', pasted: '' };
   const CAL = { active: false, taps: [] };
+  const MIC_PREF_ERR = {
+    blocked: () => `The browser blocked the microphone. ${micUnblockHint()} Then choose it again here.`,
+    dismissed: () => 'The microphone request was closed. Choose the microphone again, or press Ask again, to see it.',
+    system: () => 'Your computer’s privacy settings keep this browser from the microphone. Allow it in System Settings, Privacy & Security, Microphone, then reload the page.',
+    framed: () => 'The microphone is not available in this copy of Tone Ladder. It works at noaware.io/tone-ladder/.',
+    none: () => 'No microphone was found.',
+    busy: () => 'Another app is using the microphone.',
+    other: () => 'The microphone could not start.',
+  };
+  // Turning the microphone on in Settings asks right away, inside the learner's gesture, so the
+  // permission prompt does not arrive in the middle of a question.
+  function micPrefAsk() {
+    setMicPref('on');
+    MIC.denied = false;
+    MIC.prefErr = null;
+    const tok = ++MIC.prefTok;
+    A.micOpen().then(() => { if (!R) A.micClose(); micPermission().then(render); }, async (er) => {
+      if ((er && er.tlClosed) || tok !== MIC.prefTok) return;
+      const st = await micPermission();
+      if (tok !== MIC.prefTok || micPref() !== 'on') return;
+      const name = (er && er.name) || '';
+      if (name === 'NotAllowedError' && st !== 'prompt') { setMicPref('off'); MIC.denied = true; }
+      // a closed prompt is not a choice: back to not chosen, so choosing again asks again
+      if (name === 'NotAllowedError' && st === 'prompt') setMicPref(null);
+      MIC.prefErr = name === 'NotAllowedError' ? (/system/i.test((er && er.message) || '') ? 'system' : st === 'prompt' ? 'dismissed' : micFramed() ? 'framed' : 'blocked') : name === 'NotFoundError' ? 'none' : name === 'NotReadableError' ? 'busy' : 'other';
+      render();
+    });
+  }
+  function micPrefNote() {
+    if (window.isSecureContext === false) return 'The microphone needs a secure (https) page, so you check your own singing here.';
+    if (!A.micSupported()) return 'This browser cannot use a microphone, so you check your own singing.';
+    if (!micAvailable()) return 'The microphone is not available in this copy of Tone Ladder. It works at noaware.io/tone-ladder/.';
+    if (MIC.prefErr) return (MIC_PREF_ERR[MIC.prefErr] || MIC_PREF_ERR.other)();
+    if (MIC.perm === 'denied') return `The browser blocks the microphone for this site. ${micUnblockHint()}`;
+    return 'In Sing questions the microphone listens and suggests the grade. The sound is analysed on this device and never recorded or sent.';
+  }
+  // Play a pure A through the speakers and listen for it: the speaker and the mic must agree on pitch.
+  async function micTest() {
+    const say = (t) => { const el = $('#micTestOut'); if (el) el.textContent = t; };
+    if (R) return;
+    const run = ++MIC.test;
+    const mine = () => run === MIC.test && !R;
+    const wasOpen = A.micOn;
+    try { await A.micOpen(); } catch (e) { if (mine() && !(e && e.tlClosed)) say('The microphone could not start.'); return; }
+    MIC.prefErr = null;
+    A.wake();
+    await new Promise((res) => setTimeout(res, 300)); // as when a set starts: let the audio route settle
+    if (!mine()) return;
+    if (!A.running) { say('Tap Test the microphone again: the browser paused the sound.'); return; }
+    say('Playing a test note. Stay quiet for two seconds.');
+    const hz = [];
+    const h = A.play([{ t: 0, notes: [69], dur: 1.6, vel: 0.8 }], { timbre: 'pure' });
+    const t0 = A.now();
+    const timer = setInterval(() => {
+      const dt = A.now() - t0;
+      if (dt < 0.4 || dt > 1.5) return;
+      const f = A.micFrame();
+      if (!f) return;
+      try { const d = TL.Pitch.detect(f, A.micRate()); if (d && d.hz > 0) hz.push(d.hz); } catch (e) { /* counted as unheard */ }
+    }, 25);
+    const ok = await h.done;
+    clearInterval(timer);
+    if (!mine()) return;
+    if (!wasOpen) A.micClose();
+    if (!ok) { say('The test note was interrupted. Try again.'); return; }
+    if (hz.length < 8) { say('The microphone did not hear the test note. With headphones on that is expected; otherwise turn the volume up and try again.'); return; }
+    hz.sort((a, b) => a - b);
+    const c = Math.round(1200 * Math.log2(hz[hz.length >> 1] / 440));
+    if (Math.abs(c) <= 25) say(`The microphone heard the test note in tune (${c >= 0 ? '+' : ''}${c} cents). Checking will work on this device.`);
+    else {
+      say(`The microphone heard the test note ${Math.abs(c)} cents ${c < 0 ? 'low' : 'high'}. Something on this device shifts pitch, so checking is turned off here.`);
+      setMicPref('off');
+      const sel = $('#pref-mic'); if (sel) sel.value = 'off';
+    }
+  }
   function viewPrefs() {
     const s = S.settings;
     const sel = (key, options) => `<select id="pref-${key}" data-pref="${key}">${options.map(([v, l]) => `<option value="${v}" ${String(s[key]) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
@@ -1690,6 +2260,8 @@
           ${row('Auto-advance', 'Move on after a correct answer once the answer has finished playing.', chk('autoAdvance', 'On'))}
           ${row('Dictation playback', 'Hear each note or chord as you enter it. Easier, but less training of your inner ear.', chk('dictationSound', 'On'))}
           ${row('Singing range', 'Where the answer note plays in singing questions.', sel('voice', CUR.VOICE_LABELS))}
+          ${row('Check my singing', micPrefNote(), micAvailable() ? `<select id="pref-mic" data-change="micPref">${micPref() ? '' : '<option value="" selected disabled>Not chosen: asks at the next singing set</option>'}<option value="on" ${micPref() === 'on' ? 'selected' : ''}>With the microphone</option><option value="off" ${micPref() === 'off' ? 'selected' : ''}>Myself</option></select>${MIC.prefErr === 'dismissed' ? ' <button class="btn ghost" data-act="micAsk">Ask again</button>' : ''}` : '<span class="muted" style="font-size:13px">Myself</span>')}
+          ${micAvailable() && micPref() === 'on' ? '<div class="row"><button class="btn ghost" data-act="micTest">Test the microphone</button><span class="muted" id="micTestOut" style="font-size:13px"></span></div>' : ''}
         </section>
         <section class="pgroup"><h2>Rhythm timing</h2>
           ${row('Tap offset', 'Compensates for Bluetooth headphones and touch screens. Calibrate by tapping along with clicks.', `<input type="number" id="pref-tapOffsetMs" data-pref="tapOffsetMs" value="${esc(s.tapOffsetMs)}" step="5" min="-400" max="400"> <span class="muted" style="font-size:12.5px">ms</span>`)}
@@ -1861,6 +2433,16 @@
     skipBlock: () => { if (R && R.phase === 'between') { block().skipped = true; savePlanNow(); nextBlock(); } },
     singReveal,
     singGrade: (d) => singGrade(+d.v),
+    micYes: () => micGo(),
+    micNo: () => { setMicPref('off'); toast('You can turn the microphone on later in Settings.', 2200); if (R && R.phase === 'mic') nextQuestion(); },
+    micDone: () => micFinish(true),
+    micSkipSet,
+    micTap: () => { A.ensure(); A.wake(); setTimeout(() => { if (R && R.phase === 'mic' && R.micGate === 'tap') { if (A.running) nextQuestion(); else renderStage(); } }, 200); },
+    micContinue: () => { if (R && R.phase === 'mic') nextQuestion(); },
+    micResume,
+    singCopy,
+    micTest,
+    micAsk: () => micPrefAsk(),
     rListen: () => { if (R && R.q && R.q.kind === 'tap' && R.rPhase !== 'countin' && R.rPhase !== 'tapping') rhythmListen(); },
     rGo: () => rhythmGo(),
     weakRound: () => {
@@ -1955,7 +2537,7 @@
     const el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
     const fn = ACT[el.dataset.act];
-    if (fn) { e.preventDefault(); fn(el.dataset, el, e); }
+    if (fn) { e.preventDefault(); if (e.detail > 0 && el.blur) el.blur(); fn(el.dataset, el, e); }
   });
   document.addEventListener('pointerdown', (e) => {
     if (e.target.closest('#tapPad')) {
@@ -1988,6 +2570,10 @@
     }
     if (el.dataset.change === 'exKey') { EX.pc = +el.value; EX.prev = null; EX.trail = []; EX.voicings = []; if (A.droneTonic != null) A.droneStart(exTonic()); render(); }
     if (el.dataset.change === 'exTimbre') { EX.timbre = el.value; }
+    if (el.dataset.change === 'micPref') {
+      if (el.value === 'on') micPrefAsk();
+      else { setMicPref('off'); MIC.denied = false; MIC.prefErr = null; MIC.prefTok++; if (!R) A.micClose(); render(); }
+    }
     if (el.dataset.change === 'exResolve') { EX.resolve = el.checked; }
     if (el.dataset.hint) { S.settings.hints[el.dataset.hint] = el.value.trim(); S.touch(); }
   });
@@ -2013,10 +2599,21 @@
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (CAL.active && (e.code === 'Space')) { e.preventDefault(); if (!e.repeat) { CAL.taps.push(A.heardTime(safeTs(e.timeStamp))); flashPad('#calPad'); } return; }
     if (app.view !== 'session' || !R) return;
+    // a button reached with the keyboard presses itself (Enter or Space), not the screen's shortcut
+    const btn = e.target.closest && e.target.closest('button[data-act]');
+    if (btn && (e.key === 'Enter' || e.code === 'Space')) { if (e.repeat) e.preventDefault(); return; }
     const q = R.q;
     const k = e.key;
     if (R.phase === 'intro') { if (k === 'Enter') { e.preventDefault(); ACT.startLevel(); } return; }
     if (R.phase === 'between') { if (k === 'Enter') { e.preventDefault(); ACT.continueBlock(); } return; }
+    if (R.phase === 'mic') {
+      if (k === 'Enter' && !e.repeat) {
+        e.preventDefault();
+        const g = R.micGate;
+        if (g === 'ask' || g === 'start') micGo(); else if (g === 'tap') ACT.micTap(); else if (g === 'error') nextQuestion();
+      }
+      return;
+    }
     if (!q) return;
     if (q.kind === 'tap') {
       if (e.code === 'Space' || k === 'j' || k === 'f') {
@@ -2036,9 +2633,12 @@
     }
     if (k === 'Enter') {
       e.preventDefault();
+      // a held Enter must not run Done, accept and next in one go
+      if (q.kind === 'sing' && e.repeat) return;
       if (R.phase === 'feedback') nextQuestion();
       else if (q.kind === 'sequence' && R.phase === 'answering') seqSubmit();
-      else if (q.kind === 'sing' && R.phase === 'answering') singReveal();
+      else if (q.kind === 'sing' && R.phase === 'answering') { if (R.mic && R.mic.state === 'paused') micResume(); else if (R.mic && R.mic.state !== 'off') micFinish(true); else singReveal(); }
+      else if (q.kind === 'sing' && R.phase === 'revealed' && R.mic && R.mic.state === 'heard' && R.mic.shown) singGrade(R.mic.result.v);
       return;
     }
     if (k === 'Backspace' && q.kind === 'sequence') { e.preventDefault(); seqBack(); return; }
@@ -2063,6 +2663,11 @@
     if (document.visibilityState === 'hidden') S.save(true);
     else if (!R || R.phase === 'summary') S.pull().catch(() => {});
     if (document.visibilityState === 'visible' && R && app.view === 'session') requestWake();
+    if (document.visibilityState === 'hidden') {
+      if (A.micOn) { micPause('hidden'); if (MIC.timer) { clearInterval(MIC.timer); MIC.timer = null; } }
+      A.micClose(); // also drops a request the browser has not answered yet
+      if (R && R.phase === 'mic' && R.micGate === 'opening') { MIC.gate++; R.micGate = 'start'; renderStage(); }
+    }
   });
 
   // ---------- boot ----------

@@ -18,6 +18,7 @@ const body = page.slice(page.indexOf('<body>') + '<body>'.length, page.indexOf('
 const fragment = `<title>Tone Ladder</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="A personal ear-training course for composers.">
+<meta name="tl-copy" content="artifact">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..800;1,6..96,400..800&family=JetBrains+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400..700&display=swap">

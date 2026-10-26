@@ -637,7 +637,7 @@
     '6': 'Down from Do: Do, Ti, La.',
     '7': 'Just below Do: the note the top of the chords dips to before landing on Do. It pulls hard back up into Do.',
   };
-  const SING_SUB = 'Sing out loud at any height that suits your voice. Sing before you play the answer, then grade yourself honestly.';
+  const SING_SUB = 'Sing out loud at any height that suits your voice.';
   const FIND_DO = {
     practicePrompt: 'Listen: four chords, then Do. Sing Do with it. When it stops, sing Do again on your own.',
     practiceLine: 'Practice round: the app plays Do for you after the chords. This round does not count toward the next level.',
@@ -652,9 +652,9 @@
     name: 'Sing',
     short: 'Sing',
     hue: 255,
-    blurb: 'Sing notes of the key, short patterns and melodies, then check yourself. This builds audiation: hearing music in your head.',
+    blurb: 'Sing notes of the key, short patterns and melodies, then check them against the answer. This builds audiation: hearing music in your head.',
     why: 'If you can sing it, you can hear it in your head. That is how composers write away from an instrument.',
-    task: 'You hear four chords, then sing what the screen asks for. Then you play the answer and grade yourself.',
+    task: 'You hear four chords, then sing what the screen asks for. Then the answer plays, and the app (with the microphone) or you check the singing.',
     introFooter: 'Play each example and hum along before you start.',
     levels: SI_LEVELS,
     picksItem: true,
@@ -663,7 +663,7 @@
     voiceLabels: VOICE_LABELS,
     modeOf: () => 'major',
     itemLabel: (id) => (DEG[id] ? DEG[id].sol : RN[id] ? 'lowest note of ' + id : id.startsWith('echo') ? 'echo' : 'pattern'),
-    intro(L, { tonic, voice, keyMode = 'rotate', labels = 'both' }) {
+    intro(L, { tonic, voice, keyMode = 'rotate', labels = 'both', mic = 'none' }) {
       const lv = SI_LEVELS[L];
       const vt = voiceTonic(tonic, voice);
       const t1 = TL.cadenceLength() + GAP;
@@ -687,9 +687,15 @@
                 { label: 'Do, high to low', events: [noteEv(0, TL.CADENCE.major[3].map((o) => tonic + o), 1.4, { vel: 0.55 }), ...seqEvents([tonic + 12, tonic, tonic - 12], 1.7, 1.0, 1.6, () => organ({ deg: '1' }))] },
               ],
             },
-            {
-              id: 'check', title: 'Check yourself', sub: 'no microphone',
-              text: 'The app cannot hear you, so you check yourself. Sing first. Then press “I sang it: play the answer” and keep singing your note while it plays. Matched: the two melt into one sound and your voice does not have to move. Close: you had to move a little, or you slid into it. Missed: you had to move to a different note, or you hear two notes, even two that sound nice together. The same note sung higher or lower, the way a man and a woman sing the same melody, still counts. Not sure? Choose Close.',
+            mic === 'on' ? {
+              id: 'check', title: 'The app listens', sub: 'microphone',
+              text: 'When the chords stop, sing Do on its name and hold it for a second or two, then stop. The answer plays next: sing along with it and listen for whether the two melt into one sound. Then the app shows what it heard and suggests a grade: Matched, Close or Missed. The same note sung higher or lower, the way a man and a woman sing the same melody, still counts. If the app misheard you, say so: that round is not scored.',
+              sing: 'Practice rounds: right after this screen, and after two misses in a row, the app plays Do after the chords so you can copy it. Practice rounds do not count toward the next level.',
+              demos: [],
+            } : {
+              id: 'check', title: 'Check yourself', sub: mic === 'ask' ? 'or the microphone' : 'by ear',
+              text: (mic === 'ask' ? 'You check yourself, unless you let the app listen through your microphone; it asks when the singing starts. ' : 'You check yourself. ')
+                + 'Sing first. Then press “I sang it: play the answer” and keep singing your note while it plays. Matched: the two melt into one sound and your voice does not have to move. Close: you had to move a little, or you slid into it. Missed: you had to move to a different note, or you hear two notes, even two that sound nice together. The same note sung higher or lower, the way a man and a woman sing the same melody, still counts. Not sure? Choose Close.',
               sing: 'Practice rounds: right after this screen, and after two misses in a row, the app plays Do after the chords so you can copy it. Practice rounds do not count toward the next level.',
               demos: [],
             },
@@ -756,7 +762,7 @@
           const nm = nameOf(item, labels);
           Object.assign(q, {
             prompt: `When the chords stop, find Do, then sing ${nm}.`,
-            subline: `Hum Do quietly, step to ${nm}, then sing ${nm} out loud and hold it. Any height counts.`,
+            subline: `Find Do, step to ${nm} under your breath, then take a breath and sing ${nm} out loud on its name. Hold it. Any height counts.`,
             main: ctx,
             model: [...ctx, ...stepEvents(item, base, t1)],
             missTip: `Find Do first, then step to ${nm}: ${stepNames(item, labels)}.`,
