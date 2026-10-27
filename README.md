@@ -124,6 +124,13 @@ synthetic singing (rooms, mics, the app's own sound through the speakers), and r
 takes; run `node tone-ladder/pitch-harness/run.js static/tone-ladder/js/pitch.js` and
 `node tone-ladder/pitch-harness/takes.js` after changing it.
 
+`tone-ladder/tests/` checks the rest of the logic in Node, without a browser: every generator at
+every level, progress and level-ups (the twenty-answer window, the two-day rule, old saves, the
+newer-format guard, device settings), export and import, that every item a level introduces turns
+up in its questions, and that the notes a Sing question asks for stay in the chosen voice's range.
+Run `node tone-ladder/tests/run.js` after changing `theory.js`, `curriculum.js` or
+`store.js`; it prints one line per script and fails if any check does.
+
 Saved progress carries a format number (`FORMAT` in `js/store.js`). Bump it whenever the shape
 of saved data changes. A copy of the app that finds a higher number than its own (an open tab
 from before a deploy, or the claude.ai copy before it is republished) then leaves that progress

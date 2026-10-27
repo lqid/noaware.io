@@ -334,6 +334,7 @@ main { outline: none; }
 .mic-status { color: var(--ink-2); font-size: 14.5px; min-height: 1.5em; }
 .mic-result { display: grid; gap: 12px; width: 100%; max-width: 640px; }
 .mic-verdict { font-size: 16px; color: var(--ink-2); }
+.mic-guess { font-size: 14.5px; color: var(--ink-2); }
 .mic-verdict strong { color: var(--ink); }
 .mic-result.v1 .mic-verdict strong { color: var(--good); }
 .mic-result.v0 .mic-verdict strong { color: var(--bad); }

@@ -1159,13 +1159,14 @@
         const st = { want: w, got: ok ? w : fit.tg[p.j] + Math.round(p.off / 100), ok };
         if (ok && a >= MATCH) st.near = true;
         steps.push(st);
-        seen.set(ns[p.i], { ok, off: p.off });
+        // `tune`: how far from the target the note really sat, with no common offset or slide forgiven
+        seen.set(ns[p.i], { ok, off: p.off, tune: right(p) ? circ(ns[p.i].cents - 100 * w) : NaN });
       }
       const sung = all.map((x) => {
         const q = seen.get(x);
         let off = q ? q.off : Infinity;
         if (!q) for (const w of target) { const dd = circ(x.cents - fit.o - 100 * w); if (Math.abs(dd) < Math.abs(off)) off = dd; }
-        return { t0: x.t0, t1: x.t1, cents: x.cents, semi: Math.round(x.cents / 100), off, ok: q ? q.ok : false, clarity: x.clarity };
+        return { t0: x.t0, t1: x.t1, cents: x.cents, semi: Math.round(x.cents / 100), off, ok: q ? q.ok : false, tune: q ? q.tune : NaN, clarity: x.clarity };
       });
       return { v: g.v, reason: g.reason, notes: sung, graded: -1, steps, extra, offset: Math.round(g.offset), drift: g.reason === 'drift' ? Math.round(fit.trend) : 0 };
     }

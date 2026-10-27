@@ -599,7 +599,21 @@
     { name: 'Sing the bass', type: 'bass', chords: ['I', 'IV', 'V', 'vi', 'ii'], items: ['I', 'IV', 'V', 'vi', 'ii'], introduce: [], needs: [{ track: 'degrees', level: 5 }], note: 'The bass is the lowest note of a chord, the one the rest of the chord stands on. After the four chords, one more chord plays. Listen underneath it and sing its lowest note. Hum it if that is easier. Any height counts.' },
     { name: 'Longer patterns', type: 'read', pool: [-5, -3, -1, 0, 2, 4, 5, 7, 9, 11, 12], length: 5, maxLeap: 7, leapProb: 0.35, items: ['pattern5'], introduce: [], needs: [{ track: 'degrees', level: 5 }], note: 'Patterns now go below Do and up to High Do. A note marked low is below Do; Do marked high is High Do. The names sit higher or lower to show the shape.' },
     { name: 'Echo longer melodies', type: 'echo', pool: [-5, -3, -1, 0, 2, 4, 5, 7, 9, 11, 12], length: 6, maxLeap: 7, leapProb: 0.3, items: ['echo6'], introduce: [], needs: [{ track: 'degrees', level: 5 }], note: 'You hear the four chords, then a short melody. When it ends, sing it back from memory. You do not need the note names. They are shown after you check. Melodies can now go below Do and up to High Do.' },
+    // ---- beyond the seven notes: the pulls, the chords and the colors a composer writes with
+    { name: 'Tendency tones', type: 'resolve', items: ['res7', 'res4', 'res2', 'res6'], introduce: ['res7', 'res4', 'res2', 'res6'], needs: [{ track: 'degrees', level: 5 }], note: 'Some notes lean. Ti pulls up into Do, Fa leans down onto Mi, Re settles onto Do, La onto Sol. Sing the leaning note, hold it until you feel the pull, then give in to it. These pulls are where a melody gets its direction.' },
+    { name: 'Chord tones', type: 'tone', chords: ['I', 'IV', 'V', 'vi', 'ii'], items: ['tone3', 'tone5', 'tone7'], introduce: ['tone3', 'tone5', 'tone7'], needs: [{ track: 'harmony', level: 1 }], note: 'A chord is a stack of three notes: its root at the bottom, its third in the middle (the note that makes it major or minor), its fifth on top. After the four chords, one more chord plays, and you sing the note it asks for. Picking one note out of a chord is where voice leading begins.' },
+    { name: 'Bass lines', type: 'bassline', pool: ['I', 'IV', 'V', 'vi'], length: 4, items: ['bass4'], introduce: [], needs: [{ track: 'harmony', level: 2 }], note: 'After the four chords, a progression plays: four chords in a row. Sing its bass line, the lowest note of each chord, in order. It always starts on Do. Composers hear harmony from the bottom up.' },
+    { name: 'Chromatic colors', type: 'degree', items: [...ALL7, 'b7', '#4', 'b3', 'b6', 'b2'], introduce: ['b7', '#4', 'b3', 'b6', 'b2'], needs: [{ track: 'degrees', level: 9 }], note: 'The notes between the scale notes. Each is a color against the key, and each leans toward a neighbor. Find Do, step to the note and hold it. The answer plays the note, then lets it slide where it wants.' },
+    { name: 'Minor keys', type: 'degree', mode: 'minor', items: ['1', '2', 'b3', '4', '5', 'b6', 'b7'], introduce: ['b3', 'b6', 'b7'], needs: [{ track: 'degrees', level: 10 }], note: 'The four chords now set a minor key, which sounds darker. Me, Le and Te are its normal notes. Do is still home: find it from the chords, then step as before, through Me instead of Mi.' },
   ];
+  // the leaning notes and where they go, as semitones from Do
+  const RESOLVE_ITEMS = {
+    res7: { from: '7', to: '1', semis: [-1, 0], move: 'rise' },
+    res4: { from: '4', to: '3', semis: [5, 4], move: 'fall' },
+    res2: { from: '2', to: '1', semis: [2, 0], move: 'settle' },
+    res6: { from: '6', to: '5', semis: [-3, -5], move: 'fall' },
+  };
+  const TONE_WORD = { tone3: 'third', tone5: 'fifth', tone7: 'seventh' };
   const VOICE = { low: 45, mid: 50, high: 57 };
   const VOICE_LABELS = [['low', 'Low (most men’s voices)'], ['mid', 'Middle (higher men’s voices)'], ['high', 'High (most women’s voices)']];
   function voiceTonic(tonic, voice) {
@@ -619,14 +633,46 @@
     return best;
   }
   const singBase = (vt, s, voice) => rangeBase(vt, [s], voice);
-  // the way from Do to a note, by step: up for Re to Sol, down for La and Ti
-  function stepSemis(id) {
-    const s = nearestSemi(id, 3);
-    return s >= 0 ? [0, 2, 4, 5, 7].filter((x) => x <= s) : [0, -1, -3].filter((x) => x >= s);
+  // How far a set of notes, placed by rangeBase, still sticks out of the voice's span (0 when it fits).
+  function rangeOver(vt, semis, voice) {
+    const lo = (VOICE[voice] ?? VOICE.mid) - 2, hi = (VOICE[voice] ?? VOICE.mid) + 19;
+    const b = rangeBase(vt, semis, voice);
+    return Math.max(0, lo - (Math.min(...semis) + b)) + Math.max(0, Math.max(...semis) + b - hi);
   }
-  const stepNames = (id, labels) => stepSemis(id).map((s) => nameOf(TL.degBySemi(s).id, labels)).join(', ');
-  function stepEvents(id, base, start) {
-    const ss = stepSemis(id);
+  // A melody for this voice in this key: the generator is asked again while its notes would leave
+  // the voice's span by more than a semitone (a wide pattern fits only in a few keys).
+  function melodyFor(opts, vt, voice) {
+    let best = null, bestOver = Infinity;
+    for (let k = 0; k < 24; k++) {
+      const mel = TL.genMelody(opts);
+      const over = rangeOver(vt, mel, voice);
+      if (over < bestOver) { best = mel; bestOver = over; }
+      if (over <= 1) break;
+    }
+    return best;
+  }
+  // a chord in close position above middle C, so its root, third and fifth really are bottom, middle and top
+  function closeChord(rn, tonic) {
+    const c = RN[rn];
+    const root = tonic + c.root + (tonic + c.root < 58 ? 12 : 0);
+    return TL.CHORD_TYPES[c.q].tones.map((t) => root + t);
+  }
+  // a voiced progression's bass line as semitones from Do: the line as it was played (the first
+  // chord is I, so its bass is Do), so the answer rises and falls where the learner heard it
+  const bassLine = (v) => v.map((c) => c[0] - v[0][0]);
+  // the way from Do to a note, by step: up for Re to Sol, down for La and Ti (through the key's own
+  // scale, so Me and Le and Te in minor); a note between the scale notes comes last, after its neighbor
+  function stepSemis(id, mode = 'major') {
+    const s = nearestSemi(id, 3);
+    const up = mode === 'minor' ? [0, 2, 3, 5, 7] : [0, 2, 4, 5, 7];
+    const down = mode === 'minor' ? [0, -2, -4] : [0, -1, -3];
+    const path = s >= 0 ? up.filter((x) => x <= s) : down.filter((x) => x >= s);
+    if (path[path.length - 1] !== s) path.push(s);
+    return path;
+  }
+  const stepNames = (id, labels, mode) => stepSemis(id, mode).map((s) => nameOf(TL.degBySemi(s).id, labels)).join(', ');
+  function stepEvents(id, base, start, mode) {
+    const ss = stepSemis(id, mode);
     return seqEvents(ss.map((s) => base + s), start, 0.55, 2.0, (i) => ({ deg: TL.degBySemi(ss[i]).id, timbre: 'organ' }));
   }
   const SING_TEXT = {
@@ -636,6 +682,16 @@
     '4': 'Up from Do: Do, Re, Mi, Fa. It sits just above Mi and leans down onto it.',
     '6': 'Down from Do: Do, Ti, La.',
     '7': 'Just below Do: the note the top of the chords dips to before landing on Do. It pulls hard back up into Do.',
+    'b7': 'A whole step below Do, where Ti would be a half step. It softens the key, a folk, rock and film-score color, and settles back up onto Do.',
+    '#4': 'A half step above Fa, a half step below Sol. It pushes up into Sol.',
+    'b3': 'A half step below Mi. It darkens the key and leans down onto Re.',
+    'b6': 'A half step below La. It sighs down onto Sol.',
+    'b2': 'Just above Do. It leans straight back down onto Do.',
+  };
+  const SING_TEXT_MINOR = {
+    'b3': 'Up from Do: Do, Re, Me. The third note of a minor key, a half step lower than Mi: the note that makes the key minor.',
+    'b6': 'Up from Do: Do, Re, Me, Fa, Sol, Le. It sighs down onto Sol.',
+    'b7': 'A whole step below Do. In minor it is the normal seventh note; it leans down to Le or up to Do.',
   };
   const SING_SUB = 'Sing out loud at any height that suits your voice.';
   const FIND_DO = {
@@ -652,7 +708,7 @@
     name: 'Sing',
     short: 'Sing',
     hue: 255,
-    blurb: 'Sing notes of the key, short patterns and melodies, then check them against the answer. This builds audiation: hearing music in your head.',
+    blurb: 'Sing notes of the key, short patterns and melodies, then the notes that lean, chord tones and bass lines, and check them against the answer. This builds audiation: hearing music in your head.',
     why: 'If you can sing it, you can hear it in your head. That is how composers write away from an instrument.',
     task: 'You hear four chords, then sing what the screen asks for. Then the answer plays, and the app (with the microphone) or you check the singing.',
     introFooter: 'Play each example and hum along before you start.',
@@ -661,10 +717,11 @@
     usesKey: true,
     selfGraded: true,
     voiceLabels: VOICE_LABELS,
-    modeOf: () => 'major',
-    itemLabel: (id) => (DEG[id] ? DEG[id].sol : RN[id] ? 'lowest note of ' + id : id.startsWith('echo') ? 'echo' : 'pattern'),
+    modeOf: (L) => SI_LEVELS[L].mode || 'major',
+    itemLabel: (id) => (DEG[id] ? DEG[id].sol : RN[id] ? 'lowest note of ' + id : RESOLVE_ITEMS[id] ? `${DEG[RESOLVE_ITEMS[id].from].sol} to ${DEG[RESOLVE_ITEMS[id].to].sol}` : TONE_WORD[id] ? `a chord’s ${TONE_WORD[id]}` : id === 'bass4' ? 'bass line' : id.startsWith('echo') ? 'echo' : 'pattern'),
     intro(L, { tonic, voice, keyMode = 'rotate', labels = 'both', mic = 'none' }) {
       const lv = SI_LEVELS[L];
+      const mode = lv.mode || 'major';
       const vt = voiceTonic(tonic, voice);
       const t1 = TL.cadenceLength() + GAP;
       const organ = (extra = {}) => ({ timbre: 'organ', ...extra });
@@ -707,17 +764,58 @@
         const cards = lv.introduce.map((id) => {
           const s = nearestSemi(id, 3);
           const base = singBase(vt, s, voice);
+          const color = !DEG[id].diatonic && mode === 'major';
           return {
             id, deg: id, title: DEG[id].sol, sub: DEG[id].num,
-            text: SING_TEXT[id],
-            sing: `Find Do, then step: ${stepNames(id)}. Hold ${DEG[id].sol}.`,
+            text: (mode === 'minor' && SING_TEXT_MINOR[id]) || SING_TEXT[id],
+            sing: `Find Do, then step: ${stepNames(id, labels, mode)}. Hold ${DEG[id].sol}.`,
             demos: [
-              { label: 'From Do, after the chords', events: [...TL.cadenceEvents(tonic, 'major'), ...stepEvents(id, base, t1)] },
-              { label: 'Just the note', events: [noteEv(0, base + s, 2.0, organ({ deg: id }))] },
+              { label: 'From Do, after the chords', events: [...TL.cadenceEvents(tonic, mode), ...stepEvents(id, base, t1, mode)] },
+              { label: color ? 'The note, then where it goes' : 'Just the note', events: color ? [noteEv(0, base + s, 1.6, organ({ deg: id })), ...resolutionEvents(base, s, mode, 1.8).map((e) => ({ ...e, timbre: 'organ', role: 'resolution' }))] : [noteEv(0, base + s, 2.0, organ({ deg: id }))] },
             ],
           };
         });
         return { title: lv.name, note: lv.note, rangePicker: true, cards, demos: [] };
+      }
+      if (lv.type === 'resolve') {
+        const cards = lv.items.map((id) => {
+          const r = RESOLVE_ITEMS[id];
+          const base = rangeBase(vt, r.semis, voice);
+          return {
+            id, title: `${nameOf(r.from, labels)} → ${nameOf(r.to, labels)}`, sub: labels === 'both' ? `${DEG[r.from].num} to ${DEG[r.to].num}` : '',
+            text: { res7: 'Ti sits a half step under Do and pulls up into it. The strongest pull in the key.', res4: 'Fa sits a half step over Mi and leans down onto it. Together with Ti, it is what makes the third of the four chords pull back to the last.', res2: 'Re is one step above home and settles back down onto Do.', res6: 'La leans down onto Sol, the way Fa leans onto Mi.' }[id],
+            sing: `Sing ${nameOf(r.from, labels)} and hold it until you feel the pull, then let it ${r.move} to ${nameOf(r.to, labels)}.`,
+            demos: [{ label: 'After the chords', events: [...TL.cadenceEvents(tonic, mode), ...seqEvents(r.semis.map((x) => base + x), t1, 0.9, 1.6, (i) => organ({ deg: i ? r.to : r.from }))] }],
+          };
+        });
+        return { title: lv.name, note: lv.note, rangePicker: true, cards, demos: [] };
+      }
+      if (lv.type === 'tone') {
+        const cards = lv.items.map((id) => {
+          const rn = id === 'tone7' ? 'V7' : { tone3: 'IV', tone5: 'I' }[id];
+          const notes = closeChord(rn, tonic);
+          const k = { tone3: 1, tone5: 2, tone7: 3 }[id];
+          const pc = TL.mod12(notes[k] - tonic), tid = TL.degBySemi(pc).id;
+          const base = singBase(vt, nearestSemi(tid, 3), voice);
+          return {
+            id, title: `The ${TONE_WORD[id]}`, sub: id === 'tone3' ? 'the middle note' : id === 'tone5' ? 'the top note' : 'added on top',
+            text: { tone3: 'The middle of the three notes. It decides whether the chord is major or minor, so it is the note that carries the chord’s color.', tone5: 'The top of the three notes, a fifth above the root. Open and steady; it blends into the root so well that it can hide.', tone7: 'V7 is V with a fourth note added on top, a seventh above its root. It is Fa, and it leans down onto Mi.' }[id],
+            sing: 'Hear the chord, then its notes one by one from the bottom. Sing the one asked for and hold it.',
+            demos: [
+              { label: 'The chord, then note by note', events: [noteEv(0, notes, 1.6, { vel: 0.6 }), ...seqEvents(notes, 1.9, 0.6, 1.0), noteEv(1.9 + notes.length * 0.6 + 0.5, base + nearestSemi(tid, 3), 2.0, organ({ deg: tid }))] },
+            ],
+          };
+        });
+        return { title: lv.name, note: lv.note, rangePicker: true, cards, demos: [] };
+      }
+      if (lv.type === 'bassline') {
+        const seq = ['I', 'IV', 'V', 'I'];
+        const v = TL.voiceProgression(seq, tonic);
+        const semis = bassLine(v);
+        const base = rangeBase(vt, semis, voice);
+        return { title: lv.name, note: lv.note, rangePicker: true, cards: [], demos: [
+          { label: 'A progression, then its bass line', events: [...progEvents(v), ...seqEvents(semis.map((x) => base + x), 4.9, 0.7, 1.4, (i) => organ({ deg: TL.degBySemi(semis[i]).id }))] },
+        ] };
       }
       let demos;
       if (lv.type === 'read') {
@@ -735,8 +833,9 @@
     },
     generate(L, { tonic, item, voice = 'mid', practice = false, fade = false, labels }) {
       const lv = SI_LEVELS[L];
+      const mode = lv.mode || 'major';
       const vt = voiceTonic(tonic, voice);
-      const ctx = TL.cadenceEvents(tonic, 'major');
+      const ctx = TL.cadenceEvents(tonic, mode);
       const t1 = TL.cadenceLength() + GAP;
       const organ = (extra = {}) => ({ timbre: 'organ', ...extra });
       let q;
@@ -760,19 +859,23 @@
           });
         } else {
           const nm = nameOf(item, labels);
+          // a note between the scale notes is answered with where it goes
+          const color = !DEG[item].diatonic && mode === 'major';
           Object.assign(q, {
             prompt: `When the chords stop, find Do, then sing ${nm}.`,
             subline: `Find Do, step to ${nm} under your breath, then take a breath and sing ${nm} out loud on its name. Hold it. Any height counts.`,
             main: ctx,
-            model: [...ctx, ...stepEvents(item, base, t1)],
-            missTip: `Find Do first, then step to ${nm}: ${stepNames(item, labels)}.`,
+            model: [...ctx, ...stepEvents(item, base, t1, mode)],
+            reveal: color ? [noteEv(0, base + s, 2.2, organ({ deg: item })), ...resolutionEvents(base, s, mode, 2.4).map((e) => ({ ...e, timbre: 'organ', role: 'resolution' }))] : q.reveal,
+            missTip: `Find Do first, then step to ${nm}: ${stepNames(item, labels, mode)}.`,
             missLabel: `Hear Do, then ${nm}`,
+            stepped: true,
             parts: { do: [noteEv(0, base, 2.0, organ({ deg: '1' }))] },
             replays: [{ part: 'main', label: 'Replay the chords', key: 'Space' }, { part: 'do', label: 'Play Do' }],
           });
         }
       } else if (lv.type === 'read') {
-        const mel = TL.genMelody({ pool: lv.pool, length: lv.length, starts: [0], ends: [0, 4, 7, 12], maxLeap: lv.maxLeap, leapProb: lv.leapProb });
+        const mel = melodyFor({ pool: lv.pool, length: lv.length, starts: [0], ends: [0, 4, 7, 12], maxLeap: lv.maxLeap, leapProb: lv.leapProb }, vt, voice);
         const base = rangeBase(vt, mel, voice);
         q = {
           pattern: mel.map((s) => TL.degBySemi(s).id), patternSemis: mel,
@@ -782,7 +885,7 @@
           reveal: seqEvents(mel.map((s) => base + s), 0, 0.55, 1.0, (i) => organ({ deg: TL.degBySemi(mel[i]).id })),
         };
       } else if (lv.type === 'echo') {
-        const mel = TL.genMelody({ pool: lv.pool, length: lv.length, starts: [0, 4], ends: [0], maxLeap: lv.maxLeap, leapProb: lv.leapProb });
+        const mel = melodyFor({ pool: lv.pool, length: lv.length, starts: [0, 4], ends: [0], maxLeap: lv.maxLeap, leapProb: lv.leapProb }, vt, voice);
         const base = rangeBase(vt, mel, voice);
         q = {
           prompt: 'Listen to the melody after the chords. Then sing it back.',
@@ -790,6 +893,53 @@
           main: [...ctx, ...seqEvents(mel.map((s) => tonic + s), t1, 0.6, 1.0)],
           reveal: seqEvents(mel.map((s) => base + s), 0, 0.6, 1.0, (i) => organ({ deg: TL.degBySemi(mel[i]).id })),
           echoAnswer: mel.map((s) => TL.degBySemi(s).id), echoSemis: mel,
+          replays: [{ part: 'main', label: 'Replay (makes this a practice round)', key: 'Space' }],
+        };
+      } else if (lv.type === 'resolve') {
+        const r = RESOLVE_ITEMS[item];
+        const base = rangeBase(vt, r.semis, voice);
+        const ids = [r.from, r.to];
+        q = {
+          pattern: ids, patternSemis: r.semis,
+          prompt: `When the chords stop, sing ${nameOf(r.from, labels)}, then let it ${r.move} to ${nameOf(r.to, labels)}.`,
+          subline: 'Hold the first note until you feel where it wants to go, then give in to it. Any height counts.',
+          main: ctx,
+          reveal: seqEvents(r.semis.map((x) => base + x), 0, 0.9, 1.6, (i) => organ({ deg: ids[i] })),
+        };
+      } else if (lv.type === 'tone') {
+        const rn = item === 'tone7' ? 'V7' : TL.pick(lv.chords);
+        const notes = closeChord(rn, tonic);
+        const k = { tone3: 1, tone5: 2, tone7: 3 }[item];
+        const pc = TL.mod12(notes[k] - tonic), tid = TL.degBySemi(pc).id;
+        const s = nearestSemi(tid, 3), base = singBase(vt, s, voice);
+        const word = TONE_WORD[item];
+        const where = { tone3: 'the middle of its three notes', tone5: 'the top of its three notes', tone7: 'the fourth note, added on top' }[item];
+        q = {
+          toneAnswer: tid, chordRn: rn, chordTone: word,
+          prompt: `After the four chords, one more chord plays. Sing its ${word}: ${where}.`,
+          subline: 'Hear the chord as a stack, pick that note out of it, and sing it out loud. Any height counts.',
+          main: [...ctx, noteEv(t1, notes, 2.2, { vel: 0.6 })],
+          reveal: [noteEv(0, base + s, 2.6, organ({ deg: tid })), noteEv(2.8, notes, 1.6, { vel: 0.55 })],
+          model: [noteEv(0, notes, 1.4, { vel: 0.6 }), ...seqEvents(notes, 1.7, 0.6, 1.0), noteEv(1.7 + notes.length * 0.6 + 0.4, base + s, 2.0, organ({ deg: tid }))],
+          missTip: `The ${word} of this chord is ${nameOf(tid, labels)}. Hear the chord note by note, from the bottom, and find it.`,
+          missLabel: 'Hear it note by note',
+          parts: { chord: [noteEv(0, notes, 2.2, { vel: 0.6 })] },
+          replays: [{ part: 'main', label: 'Replay all', key: 'Space' }, { part: 'chord', label: 'The chord only' }],
+        };
+      } else if (lv.type === 'bassline') {
+        // at least three different chords, so the line is a line and not a see-saw
+        let seq = TL.genProgression({ pool: lv.pool, length: lv.length, mode });
+        for (let k = 0; k < 12 && new Set(seq).size < 3; k++) seq = TL.genProgression({ pool: lv.pool, length: lv.length, mode });
+        const v = TL.voiceProgression(seq, tonic);
+        const semis = bassLine(v);
+        const ids = semis.map((x) => TL.degBySemi(x).id);
+        const base = rangeBase(vt, semis, voice);
+        q = {
+          prompt: 'After the four chords, a progression plays. Sing its bass line: the lowest note of each chord, in order.',
+          subline: 'Listen underneath each chord. When the progression ends, sing its four bass notes back, at any height. Replaying it makes this a practice round.',
+          main: [...ctx, ...progEvents(v, t1)],
+          reveal: [...seqEvents(semis.map((x) => base + x), 0, 0.7, 1.2, (i) => organ({ deg: ids[i] })), ...progEvents(v, 4.2)],
+          echoAnswer: ids, echoSemis: semis, progression: seq,
           replays: [{ part: 'main', label: 'Replay (makes this a practice round)', key: 'Space' }],
         };
       } else {
@@ -809,7 +959,7 @@
         };
       }
       return {
-        kind: 'sing', tonic, mode: 'major', ...q,
+        kind: 'sing', tonic, mode, ...q,
         subline: q.subline || SING_SUB,
         practice: !!q.practice,
         stats: [item],
@@ -830,5 +980,5 @@
   // Every level whose introduction text or demos were rewritten in version 2.
   [DEG_LEVELS, IV_LEVELS, CH_LEVELS, HA_LEVELS, RH_LEVELS, SI_LEVELS].forEach((levels) => levels.forEach((lv) => (lv.introV = lv.introV || 2)));
   ME_LEVELS[0].introV = 2;
-  TL.Curriculum = { TRACKS, TRACK, PREREQ, voiceTonic, ALL7, ALL12, VOICE_LABELS };
+  TL.Curriculum = { TRACKS, TRACK, PREREQ, voiceTonic, ALL7, ALL12, VOICE, VOICE_LABELS };
 })(typeof window !== 'undefined' ? window : globalThis);

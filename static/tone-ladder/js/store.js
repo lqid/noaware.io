@@ -7,7 +7,7 @@
   const LS_KEY = 'tone-ladder-v1';
   // The saved-data format. A copy of the app that finds a higher number was written by newer code:
   // it leaves that progress alone (no cleaning, no saving) and asks for a reload.
-  const FORMAT = 2;
+  const FORMAT = 3; // 3: intonation samples on items, self-check tallies, the guessFirst setting
   // Settings that belong to one device (latency calibration, loudness, tempo) and never travel with progress.
   const DEVICE_KEYS = ['tapOffsetMs', 'volume', 'speed'];
   const WINDOW = 20;           // recent answers that decide mastery
@@ -27,6 +27,7 @@
     dailyGoal: 30,
     voice: 'mid',
     tapOffsetMs: 0,
+    guessFirst: true,       // with the microphone: now and then, grade yourself before the app shows its grade
     hints: {},
     unlockAll: false,
   };
@@ -47,8 +48,12 @@
       onboarded: false, sessions: 0,
       seen: {},                 // one-time notices already dismissed
       findDoPracticeNext: false, // two Find Do misses in a row: the next Find Do round is a practice round
+      guess: { n: 0, a: 0 },    // self-checks made before the microphone's grade, and how many agreed with it
     };
   }
+  // Intonation samples kept per sung item: [day, cents off (absolute), cents off (signed, + is high)],
+  // one per day, the newest last.
+  const PITCH_KEEP = 10;
   // ---------- cleaning loaded state ----------
   // Saved progress comes back from localStorage, the claude.ai account and pasted backups, so it is
   // rebuilt field by field: known keys only, numbers that are finite, levels this curriculum has.
@@ -119,6 +124,10 @@
         o.e = clampN(o.e, 0, 1);
         o.box = clampN(Math.floor(o.box), 0, BOX_DAYS.length - 1);
         if (!o.p) delete o.p; // practice count, stored only once there is one
+        if (Array.isArray(v.cl)) {
+          const cl = v.cl.filter((x) => Array.isArray(x) && x.length === 3 && x.every(Number.isFinite)).map((x) => [Math.floor(x[0]), clampN(x[1], 0, 600), clampN(x[2], -600, 600)]).slice(-PITCH_KEEP);
+          if (cl.length) o.cl = cl;
+        }
         out.items[k] = o;
       }
     }
@@ -143,6 +152,7 @@
     out.sessions = num(s.sessions);
     if (isObj(s.seen)) for (const [k, v] of Object.entries(s.seen)) if (v === true) out.seen[k] = true;
     out.findDoPracticeNext = s.findDoPracticeNext === true;
+    if (isObj(s.guess)) out.guess = { n: num(s.guess.n), a: clampN(num(s.guess.a), 0, num(s.guess.n)) };
     return out;
   }
   const UNDO_KEY = 'tone-ladder-v1-before-import';
@@ -388,6 +398,37 @@
     item(track, it) {
       const k = track + ':' + it;
       return this.state.items[k] || { n: 0, c: 0, e: 0.5, rt: 0, last: 0, box: 0, due: 0, bd: 0 };
+    },
+    // How far off an answer was sung, in cents: merged into today's sample for the item.
+    recordPitch(track, it, abs, signed) {
+      if (!Number.isFinite(abs) || !Number.isFinite(signed)) return;
+      const k = track + ':' + it;
+      const s = { ...this.item(track, it) };
+      const today = todayNum();
+      const cl = (s.cl || []).map((x) => x.slice());
+      const last = cl[cl.length - 1];
+      if (last && last[0] === today) { last[1] = last[1] * 0.7 + abs * 0.3; last[2] = last[2] * 0.7 + signed * 0.3; }
+      else cl.push([today, abs, signed]);
+      s.cl = cl.slice(-PITCH_KEEP).map((x) => [x[0], Math.round(x[1]), Math.round(x[2])]);
+      this.state.items[k] = s;
+      this.touch();
+    },
+    // An item's intonation: today's or the latest sample, the one from a week or more before it, and
+    // whether the voice tends low or high over the last few.
+    pitchTrend(track, it) {
+      const cl = this.item(track, it).cl;
+      if (!cl || !cl.length) return null;
+      const now = cl[cl.length - 1];
+      const before = cl.slice().reverse().find((x) => now[0] - x[0] >= 7) || null;
+      const recent = cl.slice(-4);
+      const lean = recent.reduce((a, x) => a + x[2], 0) / recent.length;
+      return { now: now[1], nowDay: now[0], before: before ? before[1] : null, lean: Math.abs(lean) >= 20 ? (lean < 0 ? 'low' : 'high') : null, days: cl.length };
+    },
+    // The learner graded themselves before seeing the microphone's grade: did the two agree?
+    noteGuess(agree) {
+      const g = this.state.guess || (this.state.guess = { n: 0, a: 0 });
+      g.n++; if (agree) g.a++;
+      this.touch();
     },
     // Weighted choice: weak items, new items and due items come up more; no item three times in a row.
     chooseItem(track, pool, { newItems = [], recent = [], levelStats = {} } = {}) {

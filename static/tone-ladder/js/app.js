@@ -71,7 +71,7 @@
       case 'harmony': return lv.pool.join(' · ') + (lv.mode === 'minor' ? ' · minor' : '');
       case 'melody': return `${lv.length} notes · ` + lv.items.map((i) => degText(i).main).join(' ');
       case 'rhythm': return lv.cells.map((c) => TL.RCELLS[c].label).join(' · ') + (lv.meter ? ' · ' + lv.meter : '');
-      case 'sing': return { degree: 'Sing notes of the key', read: `Sing ${lv.length}-note patterns`, echo: `Echo ${lv.length}-note melodies`, bass: 'Sing the lowest note of a chord' }[lv.type] + (lv.type === 'degree' ? ': ' + lv.items.map((i) => degText(i).main).join(' · ') : '');
+      case 'sing': return { degree: lv.mode === 'minor' ? 'Sing notes of a minor key' : 'Sing notes of the key', read: `Sing ${lv.length}-note patterns`, echo: `Echo ${lv.length}-note melodies`, bass: 'Sing the lowest note of a chord', resolve: 'Sing a leaning note, then where it goes', tone: 'Sing a chord’s third, fifth or seventh', bassline: `Sing the bass line of ${lv.length} chords` }[lv.type] + (lv.type === 'degree' ? ': ' + lv.items.map((i) => degText(i).main).join(' · ') : '');
       default: return '';
     }
   }
@@ -786,6 +786,16 @@
       // a grade above the app's means it misheard: the round is not scored either way
       if (v > heard.result.v) { q.practice = true; misheard = true; R.micOverrides = (R.micOverrides || 0) + 1; }
       if (heard.warmup) q.practice = true;
+      // how far off it was sung, as today's intonation sample for this note or pattern
+      if (!misheard && heard.result.v != null) {
+        const r = heard.result, ns = r.notes || [];
+        // only notes that were the right note (a wrong note says nothing about tuning), measured
+        // against the target as played: in a melody that is `tune`, before any common offset is forgiven
+        const vals = heard.kind === 'hold'
+          ? [ns[Number.isInteger(r.graded) ? r.graded : ns.length - 1]].filter((x) => x && Number.isFinite(x.off) && Math.abs(x.off) <= 100).map((x) => x.off)
+          : r.reason === 'transposed' || r.v === 0 ? [] : ns.filter((x) => x.ok && Number.isFinite(x.tune) && Math.abs(x.tune) <= 100).map((x) => x.tune);
+        if (vals.length) S.recordPitch(q.track, q.item, vals.reduce((a, x) => a + Math.abs(x), 0) / vals.length, vals.reduce((a, x) => a + x, 0) / vals.length);
+      }
       MIC.rounds = micRounds() + 1;
       setDeviceInfo({ micRounds: MIC.rounds });
     }
@@ -802,6 +812,15 @@
     if (!advise) toast(misheard ? 'Not scored: the app may have misheard you.' : `Saved: ${GRADE_NAME[v]}${q.practice ? ' (practice)' : ''}`, misheard ? 2200 : 1100);
     const id = q.id;
     setTimeout(() => { if (R && R.q && R.q.id === id) nextQuestion(); }, misheard ? 900 : 450);
+  }
+
+  // The learner's own grade, given before the app shows its own: tallied, then the verdict appears.
+  function singGuess(v) {
+    const m = R && R.mic;
+    if (!m || !R.q || R.phase !== 'revealed' || m.state !== 'heard' || !m.shown || !m.guessFirst || m.guess != null || ![0, 0.5, 1].includes(v)) return;
+    m.guess = v;
+    S.noteGuess(v === m.result.v);
+    renderStage();
   }
 
   // ---------- answering: sing, checked by the microphone ----------
@@ -832,7 +851,7 @@
   function singTarget(q) {
     if (q.pattern) return { kind: 'sequence', semis: q.patternSemis };
     if (q.echoSemis) return { kind: 'sequence', semis: q.echoSemis };
-    return { kind: 'hold', semis: [DEG[q.deg || q.bassAnswer].semi] };
+    return { kind: 'hold', semis: [DEG[q.deg || q.bassAnswer || q.toneAnswer].semi] };
   }
 
   // Before the first question of a Sing set, and after a level's introduction, the mic opens with
@@ -979,6 +998,23 @@
     }
     // the first few rounds with the microphone (after Find Do) are a warm-up and not scored
     m.warmup = R.q.level > 0 && !R.q.copy && micRounds() < 3;
+    // now and then the learner grades themselves first: their ear against the app's
+    R.micGraded = (R.micGraded || 0) + 1;
+    m.guessFirst = !!S.settings.guessFirst && !m.warmup && !R.q.copy && R.q.level > 0 && R.micGraded % 3 === 0;
+    m.guess = null;
+    // singing an octave away from where the app plays, time after time: the range setting may be wrong
+    const rv = R.q.audio.reveal && R.q.audio.reveal[0];
+    const own = !R.q.chordRn && !R.q.bassAnswer && R.q.deg && DEG[R.q.deg].semi <= 7; // Do to Sol: the app plays them above Do, as the learner steps
+    if (own && m.kind === 'hold' && res.v > 0 && res.notes && res.notes.length && rv && rv.notes && !R.micRangeTip) {
+      const n = res.notes[Number.isInteger(res.graded) ? res.graded : res.notes.length - 1];
+      const sung = CUR.voiceTonic(R.q.tonic, S.settings.voice) + n.cents / 100;
+      const d = sung - rv.notes[0];
+      R.micOct = Math.abs(d) >= 9 ? (R.micOct || 0) + Math.sign(d) : 0;
+      if (Math.abs(R.micOct) >= 4) {
+        const order = ['low', 'mid', 'high'], i = order.indexOf(S.settings.voice), j = Math.max(0, Math.min(2, i + Math.sign(R.micOct)));
+        if (j !== i) { m.rangeTip = { dir: R.micOct > 0 ? 'above' : 'below', to: CUR.VOICE_LABELS[j][1] }; R.micRangeTip = true; }
+      }
+    }
     R.phase = 'revealed';
     renderStage();
     // the answer plays while the learner sings along; playPart shows the verdict when it ends
@@ -1081,8 +1117,8 @@
       fftSize: m.fftSize || 2048,
       question: {
         level: q.level, levelName: lv.name, type: lv.type, kind: m.kind, target: singTarget(q).semis,
-        doMidi: CUR.voiceTonic(q.tonic, S.settings.voice), tonic: q.tonic, key: TL.keyName(q.tonic, 'major'),
-        deg: q.deg || q.bassAnswer || null, pattern: q.pattern || q.echoAnswer || null,
+        doMidi: CUR.voiceTonic(q.tonic, S.settings.voice), tonic: q.tonic, key: TL.keyName(q.tonic, q.mode || 'major'),
+        deg: q.deg || q.bassAnswer || q.toneAnswer || null, pattern: q.pattern || q.echoAnswer || null,
         voice: S.settings.voice, practice: !!q.practice, copy: !!q.copy,
       },
       ticks, gaps: snd.gaps || [], cut,
@@ -1560,11 +1596,13 @@
     if (R.phase !== 'answering') {
       if (q.echoAnswer) after = `<p class="muted">It was:</p>${patternRow(q.echoAnswer, q.echoSemis)}`;
       if (q.bassAnswer) { const d = degText(q.bassAnswer); after = `<p class="muted">The bass was <strong>${esc(d.main)}</strong>.</p>`; }
+      if (q.toneAnswer) { const d = degText(q.toneAnswer); after = `<p class="muted">The ${esc(q.chordTone)} was <strong>${esc(d.main)}</strong>.</p>`; }
     }
     const melodyLike = !!(q.pattern || q.echoAnswer);
     const heard = R.mic && R.mic.result && R.mic.state === 'heard' ? R.mic.result : null;
     const shown = heard && R.mic.shown;
-    if (shown && R.phase !== 'answering') after = micResultHTML(q, heard);
+    const guessing = shown && R.mic.guessFirst && R.mic.guess == null;
+    if (shown && R.phase !== 'answering' && !guessing) after = micResultHTML(q, heard);
     let controls;
     if (R.phase === 'answering' && R.mic && R.mic.state !== 'off') {
       controls = micPanelHTML(q);
@@ -1572,6 +1610,15 @@
       controls = `<button class="btn primary lg" data-act="singReveal"${R.mainEnd == null ? ' disabled data-needs-main' : ''}>I sang it: play the answer <kbd>Enter</kbd></button>`;
     } else if (R.phase === 'revealed' && heard && !shown) {
       controls = `<p class="tip">${melodyLike ? 'Sing it again along with the answer. Same notes?' : 'Sing your note again along with the answer. Do they melt into one sound?'}</p>`;
+    } else if (R.phase === 'revealed' && guessing) {
+      controls = `<p class="tip">Your call first: how was it?</p>
+        <div class="grade">
+          <button class="btn" data-act="singGuess" data-v="1">${melodyLike ? 'Matched: every note right' : 'Matched: one sound'} <kbd>1</kbd></button>
+          <button class="btn" data-act="singGuess" data-v="0.5">${melodyLike ? 'Close: one note off, or slid' : 'Close: moved a little'} <kbd>2</kbd></button>
+          <button class="btn" data-act="singGuess" data-v="0">${melodyLike ? 'Missed: two or more off' : 'Missed: a different note'} <kbd>3</kbd></button>
+          <button class="btn ghost" data-act="replay" data-part="reveal">Hear it again</button>
+        </div>
+        <p class="muted" style="font-size:13.5px;max-width:60ch">Then the app shows what it heard. Judging your own singing before you are told is what trains the ear; this round is graded by the app as usual.</p>`;
     } else if (R.phase === 'revealed' && heard) {
       const sug = heard.v;
       const gb = (v, label, key) => `<button class="btn${v === sug ? ' primary' : ''}" data-act="singGrade" data-v="${v}">${label}${v === sug ? ' · the app’s grade' : v > sug ? ' · it misheard me' : ''} <kbd>${v === sug ? 'Enter' : key}</kbd></button>`;
@@ -1694,7 +1741,7 @@
       if (hold) return (m.reason === 'short' ? 'That was short. Sing it again and hold it for a second or two.' : 'I didn’t hear a held note. Sing it out loud and hold it.') + again;
       return 'I didn’t catch the notes. Sing them again, a little louder.' + again;
     }
-    if (!st || !st.heard) return hold ? (q.bassAnswer ? 'Sing or hum the lowest note and hold it. Stop when you are done.' : 'Sing it on its name and hold it. Stop when you are done.') : 'Sing the notes. Stop when you are done.';
+    if (!st || !st.heard) return hold ? (q.bassAnswer ? 'Sing or hum the lowest note and hold it. Stop when you are done.' : q.chordTone ? `Sing the chord’s ${q.chordTone} and hold it. Stop when you are done.` : 'Sing it on its name and hold it. Stop when you are done.') : 'Sing the notes. Stop when you are done.';
     return hold && st.held >= 1 ? 'Holding a note. Stop when you are done.' : 'Hearing you…';
   }
   function micPanelHTML(q) {
@@ -1758,11 +1805,13 @@
         const dir = d === 6 ? 'six half steps away' : d < 6 ? 'higher' : 'lower';
         if (q.bassAnswer && TL.rnPcs(q.item).includes(pc)) line = `You sang a note of the chord${name ? ` (${name})` : ''}, but not its lowest: the bass was ${want}. Listen underneath it.`;
         else if (q.bassAnswer) line = `${name ? `You sang ${name}.` : 'You sang a different note.'} The bass was ${want}, ${dir}.`;
-        else if (want0 === 0 && (pc === 4 || pc === 7)) line = `You sang another note of the home chord${name ? ` (${name})` : ''}. Do is the one the chords come to rest on.`;
+        else if (q.chordRn && TL.rnPcs(q.chordRn).includes(pc)) line = `You sang a note of the chord${name ? ` (${name})` : ''}, but not its ${q.chordTone}: that was ${want}. Hear it note by note from the bottom.`;
+        else if (q.chordRn) line = `${name ? `You sang ${name}.` : 'You sang a different note.'} The ${q.chordTone} was ${want}, ${dir}.`;
+        else if (want0 === 0 && (pc === (q.mode === 'minor' ? 3 : 4) || pc === 7)) line = `You sang another note of the home chord${name ? ` (${name})` : ''}. Do is the one the chords come to rest on.`;
         else line = `${name ? `You sang ${name}.` : 'You sang a different note.'} ${want} is ${dir}.`;
         // the hummed steps tell a key-finding slip from a stepping one
         const first = notes[0];
-        if (q.deg && want0 !== 0 && gi > 0 && first && TL.mod12(first.semi) !== 0) line += ` Your first note was ${knownName(first.semi) || 'not Do'}: find Do from the chords before you step.`;
+        if (q.stepped && want0 !== 0 && gi > 0 && first && TL.mod12(first.semi) !== 0) line += ` Your first note was ${knownName(first.semi) || 'not Do'}: find Do from the chords before you step.`;
       }
     } else {
       const steps = res.steps || [];
@@ -1781,9 +1830,12 @@
         return `<span data-deg="${id}" data-i="${i}" class="${x.ok ? 'ok' : 'bad'}" style="--h:${DEG[id].hue}">${esc(degText(id).main)}${got}</span>`;
       }).join('')}</div>`;
     }
-    const bias = R.mic && R.mic.bias ? `<p class="tip">Your held notes tend to sit a little ${R.mic.bias}. Breathe low and aim a touch ${R.mic.bias === 'low' ? 'higher' : 'lower'}.</p>` : '';
+    const m = R.mic || {};
+    const bias = m.bias ? `<p class="tip">Your held notes tend to sit a little ${m.bias}. Breathe low and aim a touch ${m.bias === 'low' ? 'higher' : 'lower'}.</p>` : '';
+    const range = m.rangeTip ? `<p class="tip">You keep singing an octave ${m.rangeTip.dir} where the app plays. The singing range “${esc(m.rangeTip.to)}” may fit your voice better: Settings, Singing range.</p>` : '';
+    const guess = m.guessFirst && m.guess != null ? `<p class="mic-guess">You said <strong>${GRADE_NAME[m.guess]}</strong>; the app heard <strong>${head}</strong>.${m.guess === v ? ' Your ear agrees with it.' : ''}</p>` : '';
     return `<div class="mic-result v${String(v).replace('.', '')}">
-      <p class="mic-verdict"><strong>${head}.</strong> ${esc(line)}</p>${bias}
+      ${guess}<p class="mic-verdict"><strong>${head}.</strong> ${esc(line)}</p>${bias}${range}
       ${marks}${v === 1 && !res.reason?.match(/drift|slid|wobble/) ? '' : micTraceSVG(tg, res)}
     </div>`;
   }
@@ -2167,7 +2219,8 @@
           <div class="section-title"><h2>Accuracy by item</h2></div>
           <div class="seg" role="group" aria-label="Track" style="margin-bottom:14px">${TRACKS.map((t) => `<button data-act="progTrack" data-track="${t.id}" aria-pressed="${progTrack === t.id}">${esc(t.short)}</button>`).join('')}</div>
           ${accBars(progTrack)}
-          <p class="muted" style="font-size:12.5px;margin-top:10px">Recent accuracy, weighted toward your latest answers.</p>
+          <p class="muted" style="font-size:12.5px;margin-top:10px">Recent accuracy, weighted toward your latest answers.${progTrack === 'sing' ? ' With the microphone, each note also shows how far off it was the last day you sang it, in cents (hundredths of a semitone; 50 is halfway to the next note), with the value from a week or more before in brackets; “low” or “high” means your voice has tended that way on it lately.' : ''}</p>
+          ${progTrack === 'sing' && S.state.guess && S.state.guess.n ? `<p class="muted" style="font-size:12.5px">Your call first: your own grade agreed with the app’s ${S.state.guess.a} of ${S.state.guess.n} times.</p>` : ''}
         </section>
       </div>
     </div>`;
@@ -2175,10 +2228,16 @@
   function accBars(trackId) {
     const rows = itemOrder(trackId).map((it) => ({ it, s: S.item(trackId, it) })).filter((x) => x.s.n > 0);
     if (!rows.length) return '<p class="empty">No answers in this track yet.</p>';
+    // sung items carry their intonation: how far off in the latest session and a week or more before it, and which way the voice leans
+    const tune = (it) => {
+      const t = trackId === 'sing' ? S.pitchTrend(trackId, it) : null;
+      if (!t) return '';
+      return ` · <span title="cents off: hundredths of a semitone; 50 is halfway to the next note">${t.now} cents${t.before != null ? ` <span class="muted">(was ${t.before})</span>` : ''}${t.lean ? `<span class="muted">, ${t.lean}</span>` : ''}</span>`;
+    };
     return `<div class="accbars">${rows.map(({ it, s }) => `<div class="accbar deg" style="--h:${itemHue(trackId, it)}">
       <span class="nm"><i></i><span>${esc(itemName(trackId, it))}</span></span>
       <span class="track"><span style="width:${Math.max(2, s.e * 100)}%"></span></span>
-      <span class="pc">${pct(s.e)} · ${s.n}</span></div>`).join('')}</div>`;
+      <span class="pc">${pct(s.e)} · ${s.n}${tune(it)}</span></div>`).join('')}</div>`;
   }
   function activityChart() {
     const days = 35;
@@ -2238,7 +2297,7 @@
           <li><strong>Intervals</strong> and <strong>Chord Qualities</strong> from day one. They give you names for distances and colors.</li>
           <li><strong>Melodic Dictation</strong> opens when you reach Scale Degrees level 3. By then Do, Mi and Sol are solid, and you are meeting Re.</li>
           <li><strong>Harmony</strong> opens at Scale Degrees level 4 and Chord Qualities level 2. Hearing a bass line as scale degrees is what makes Roman numerals hearable.</li>
-          <li><strong>Rhythm</strong> and <strong>Sing</strong> run alongside everything. Each Sing level waits until Scale Degrees has taught its notes.</li>
+          <li><strong>Rhythm</strong> and <strong>Sing</strong> run alongside everything. Most Sing levels wait until Scale Degrees has taught their notes; Chord tones and Bass lines wait for Harmony to name their chords.</li>
         </ol>
         <h2>How to practice</h2>
         <ul>
@@ -2303,14 +2362,66 @@
     if (MIC.perm === 'denied') return `The browser blocks the microphone for this site. ${micUnblockHint()}`;
     return 'In Sing questions the microphone listens and suggests the grade. The sound is analysed on this device and never sent anywhere; only the current answer is kept, until the next question, so you can save it if a grade looks wrong.';
   }
+  // Sing a slow slide from the lowest comfortable note to the highest: the app picks the singing range.
+  const NOTE_NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+  const noteName = (m) => NOTE_NAMES[TL.mod12(Math.round(m))] + (Math.floor(Math.round(m) / 12) - 1);
+  // Outside a set nothing else needs the mic, so whichever of these tools ran last owns it and
+  // closes it on every way out (a newer run, or a set starting, takes it over instead).
+  async function micRange() {
+    const say = (t) => { const el = $('#micRangeOut'); if (el) el.textContent = t; };
+    if (R) return;
+    const run = ++MIC.test;
+    const mine = () => run === MIC.test && !R;
+    try { await A.micOpen(); } catch (e) { if (mine() && !(e && e.tlClosed)) say('The microphone could not start.'); return; }
+    try { await micRangeRun(say, mine); } finally { if (mine()) A.micClose(); }
+  }
+  async function micRangeRun(say, mine) {
+    MIC.prefErr = null;
+    A.wake();
+    await new Promise((res) => setTimeout(res, 300));
+    if (!mine()) return;
+    if (!A.running) { say('Tap Find my range again: the browser paused the sound.'); return; }
+    say('Listening. Sing “oo” from your lowest comfortable note, slide slowly up to your highest, then stop.');
+    const midis = [];
+    let heard = null, last = null;
+    const t0 = performance.now();
+    await new Promise((res) => {
+      const timer = setInterval(() => {
+        if (!mine()) { clearInterval(timer); res(); return; }
+        const now = performance.now(), f = A.micFrame();
+        if (f) {
+          try {
+            const d = TL.Pitch.detect(f, A.micRate());
+            if (d && d.hz > 0 && d.clarity >= 0.85) { midis.push(69 + 12 * Math.log2(d.hz / 440)); last = now; if (heard == null) heard = now; }
+          } catch (e) { /* counted as unheard */ }
+        }
+        if ((heard != null && now - last > 1500 && midis.length > 20) || now - t0 > 20000) { clearInterval(timer); res(); }
+      }, 25);
+    });
+    if (!mine()) return;
+    if (midis.length < 20) { say('I did not hear a slide. Sing louder and closer to the microphone, and try again.'); return; }
+    midis.sort((a, b) => a - b);
+    const lo = midis[Math.floor(midis.length * 0.08)], hi = midis[Math.floor(midis.length * 0.92)];
+    if (hi - lo < 5) { say('That was a short slide. Go from your lowest comfortable note up to your highest.'); return; }
+    // the setting whose span (Do within it, patterns up to a 13th above its bottom) the voice covers best
+    const best = ['low', 'mid', 'high'].map((v) => {
+      const a = CUR.VOICE[v] - 2, b = CUR.VOICE[v] + 19;
+      return { v, fit: Math.max(0, Math.min(b, hi) - Math.max(a, lo)) - 0.2 * Math.abs((a + b) / 2 - (lo + hi) / 2) };
+    }).sort((x, y) => y.fit - x.fit)[0].v;
+    S.set('voice', best);
+    const sel = $('#pref-voice'); if (sel) sel.value = best;
+    say(`Your comfortable range is about ${noteName(lo)} to ${noteName(hi)}. The setting “${CUR.VOICE_LABELS.find((x) => x[0] === best)[1]}” fits it best, and is now chosen.`);
+  }
   // Play a pure A through the speakers and listen for it: the speaker and the mic must agree on pitch.
   async function micTest() {
     const say = (t) => { const el = $('#micTestOut'); if (el) el.textContent = t; };
     if (R) return;
     const run = ++MIC.test;
     const mine = () => run === MIC.test && !R;
-    const wasOpen = A.micOn;
     try { await A.micOpen(); } catch (e) { if (mine() && !(e && e.tlClosed)) say('The microphone could not start.'); return; }
+    try { await micTestRun(say, mine); } finally { if (mine()) A.micClose(); }
+  }
+  async function micTestRun(say, mine) {
     MIC.prefErr = null;
     A.wake();
     await new Promise((res) => setTimeout(res, 300)); // as when a set starts: let the audio route settle
@@ -2330,7 +2441,6 @@
     const ok = await h.done;
     clearInterval(timer);
     if (!mine()) return;
-    if (!wasOpen) A.micClose();
     if (!ok) { say('The test note was interrupted. Try again.'); return; }
     if (hz.length < 8) { say('The microphone did not hear the test note. With headphones on that is expected; otherwise turn the volume up and try again.'); return; }
     hz.sort((a, b) => a - b);
@@ -2367,10 +2477,12 @@
           ${row('Note names', '', sel('labels', [['both', 'Solfège and numbers (Sol 5)'], ['solfege', 'Solfège only (Sol)'], ['numbers', 'Numbers only (5)']]))}
           ${row('Daily goal', 'Sets the length of the Today plan.', sel('dailyGoal', [[15, '15 questions · about 6 min'], [30, '30 questions · about 12 min'], [50, '50 questions · about 20 min']]))}
           ${row('Auto-advance', 'Move on after a correct answer once the answer has finished playing.', chk('autoAdvance', 'On'))}
+          ${row('Your call first', 'With the microphone on, every third singing round asks for your own grade before the app shows what it heard. Judging your singing before you are told is what trains the ear.', chk('guessFirst', 'On'))}
           ${row('Dictation playback', 'Hear each note or chord as you enter it. Easier, but less training of your inner ear.', chk('dictationSound', 'On'))}
           ${row('Singing range', 'Where the answer note plays in singing questions.', sel('voice', CUR.VOICE_LABELS))}
+          ${micAvailable() ? '<div class="row"><button class="btn ghost" data-act="micRange">Find my range</button><span class="muted" id="micRangeOut" role="status" style="font-size:13px">Sing a slow slide from your lowest comfortable note to your highest, and the app picks the range for you.</span></div>' : ''}
           ${row('Check my singing', micPrefNote(), micAvailable() ? `<select id="pref-mic" data-change="micPref">${micPref() ? '' : '<option value="" selected disabled>Not chosen: asks at the next singing set</option>'}<option value="on" ${micPref() === 'on' ? 'selected' : ''}>With the microphone</option><option value="off" ${micPref() === 'off' ? 'selected' : ''}>Myself</option></select>${MIC.prefErr === 'dismissed' ? ' <button class="btn ghost" data-act="micAsk">Ask again</button>' : ''}` : '<span class="muted" style="font-size:13px">Myself</span>')}
-          ${micAvailable() && micPref() === 'on' ? '<div class="row"><button class="btn ghost" data-act="micTest">Test the microphone</button><span class="muted" id="micTestOut" style="font-size:13px"></span></div>' : ''}
+          ${micAvailable() && micPref() === 'on' ? '<div class="row"><button class="btn ghost" data-act="micTest">Test the microphone</button><span class="muted" id="micTestOut" role="status" style="font-size:13px"></span></div>' : ''}
         </section>
         <section class="pgroup"><h2>Rhythm timing</h2>
           ${row('Tap offset', 'Compensates for Bluetooth headphones and touch screens. Calibrate by tapping along with clicks.', `<input type="number" id="pref-tapOffsetMs" data-pref="tapOffsetMs" value="${esc(s.tapOffsetMs)}" step="5" min="-400" max="400"> <span class="muted" style="font-size:12.5px">ms</span>`)}
@@ -2542,6 +2654,7 @@
     skipBlock: () => { if (R && R.phase === 'between') { block().skipped = true; savePlanNow(); nextBlock(); } },
     singReveal,
     singGrade: (d) => singGrade(+d.v),
+    singGuess: (d) => singGuess(+d.v),
     micYes: () => micGo(),
     micNo: () => { setMicPref('off'); toast('You can turn the microphone on later in Settings.', 2200); if (R && R.phase === 'mic') nextQuestion(); },
     micDone: () => micFinish(true),
@@ -2551,6 +2664,7 @@
     micResume,
     singCopy,
     micTest,
+    micRange,
     takeAsk: (d, el, e) => {
       if (!(R && R.mic)) return;
       R.mic.take = { ask: true };
@@ -2760,14 +2874,20 @@
       if (R.phase === 'feedback') nextQuestion();
       else if (q.kind === 'sequence' && R.phase === 'answering') seqSubmit();
       else if (q.kind === 'sing' && R.phase === 'answering') { if (R.mic && R.mic.state === 'paused') micResume(); else if (R.mic && R.mic.state !== 'off') micFinish(true); else singReveal(); }
-      else if (q.kind === 'sing' && R.phase === 'revealed' && R.mic && R.mic.state === 'heard' && R.mic.shown) singGrade(R.mic.result.v);
+      else if (q.kind === 'sing' && R.phase === 'revealed' && R.mic && R.mic.state === 'heard' && R.mic.shown && !(R.mic.guessFirst && R.mic.guess == null)) singGrade(R.mic.result.v);
       return;
     }
     if (k === 'Backspace' && q.kind === 'sequence') { e.preventDefault(); seqBack(); return; }
     const m = e.code.match(/^(?:Digit|Numpad)(\d)$/);
     if (!m) return;
     const digit = m[1];
-    if (q.kind === 'sing') { if (R.phase === 'revealed') { const v = { 1: 1, 2: 0.5, 3: 0 }[digit]; if (v != null) singGrade(v); } return; }
+    if (q.kind === 'sing') {
+      if (R.phase === 'revealed') {
+        const v = { 1: 1, 2: 0.5, 3: 0 }[digit];
+        if (v != null) { if (R.mic && R.mic.state === 'heard' && R.mic.shown && R.mic.guessFirst && R.mic.guess == null) singGuess(v); else singGrade(v); }
+      }
+      return;
+    }
     let id = null;
     if (q.layout === 'ladder') {
       const hints = keyHints(q.options, q.mode);
