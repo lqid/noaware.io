@@ -5,7 +5,7 @@
 <!-- Like the studio page, this makes no third-party requests. Unlike it, it runs scripts (its own
      files only) and sets inline style attributes, which the app uses for its note colors.
      GitHub Pages cannot set headers, so the policy is a meta tag. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tone Ladder · Mono No Aware Studios</title>
 <meta name="description" content="Tone Ladder, an ear-training course for composers: scale degrees, intervals, chords, harmony, melodic dictation, rhythm and singing.">
@@ -15,6 +15,12 @@
 <meta name="theme-color" content="#151310" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<!-- Installable and usable offline: the manifest and sw.js (registered by app.js) keep the page,
+     its scripts, styles and fonts on the device once seen. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tone Ladder">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preload" href="/fonts/instrument-sans-normal-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/cormorant-garamond-normal-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="app.css">

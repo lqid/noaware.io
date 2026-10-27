@@ -95,6 +95,7 @@ unlisted: nothing on the studio page links to it, and it carries `noindex`. All 
 | App styles | `static/tone-ladder/app.css` |
 | Studio look: fonts from `/fonts/`, paper palette | `static/tone-ladder/studio.css` |
 | The app: theory, sound, curriculum, progress, screens | `static/tone-ladder/js/` |
+| Offline copy and install: service worker, manifest, icons | `static/tone-ladder/sw.js`, `manifest.webmanifest`, `icon-*.png` |
 
 Unlike the studio page it runs JavaScript, but only its own files, and it still makes no
 third-party requests: the sound is synthesized in the browser and the fonts are the studio's.
@@ -124,12 +125,34 @@ synthetic singing (rooms, mics, the app's own sound through the speakers), and r
 takes; run `node tone-ladder/pitch-harness/run.js static/tone-ladder/js/pitch.js` and
 `node tone-ladder/pitch-harness/takes.js` after changing it.
 
+With the microphone on, the Rhythm track also hears claps (`clapTick` in `js/app.js`): a clap is
+a sudden burst well above the room and above the app's own clicks, whose loudness at the mic is
+measured during the get-ready clicks. A clap counts like a tap at its moment, so claps and taps
+mix freely. Preferences → Clap rhythms turns it off.
+
+Note questions can be answered on a piano instead of the ladder (Preferences → Answer notes on):
+the keys from the Sol below Do up to High Do (Do to High Do on a phone), named by scale degree. A MIDI
+keyboard answers the same questions by playing the note (Web MIDI, so Chrome and Edge; the
+browser asks once, and the choice is kept per device). The claude.ai copy leaves MIDI out, as it
+does the microphone.
+
+The site copy works offline: `sw.js` is a service worker that keeps the page, its scripts,
+styles, fonts and icons in a cache (`tone-ladder-shell`), answering from the network first so a
+deploy is picked up on the next load, and from the cache when there is no network. Nothing else
+is cached and nothing is sent. `manifest.webmanifest` and the icons make it installable ("Add to
+Home Screen"); the policy allows the manifest with `manifest-src 'self'`. A file the page loads
+must be on the worker's list, or the offline copy breaks without it: `tone-ladder/tests/sw-check.js`
+fails when the list and the page disagree. The worker registers on `hugo server` too; it never
+serves a stale file while the server is up, but to be rid of it, unregister it in the browser's
+devtools. The claude.ai copy registers no worker.
+
 `tone-ladder/tests/` checks the rest of the logic in Node, without a browser: every generator at
 every level, progress and level-ups (the twenty-answer window, the two-day rule, old saves, the
 newer-format guard, device settings), export and import, that every item a level introduces turns
-up in its questions, and that the notes a Sing question asks for stay in the chosen voice's range.
-Run `node tone-ladder/tests/run.js` after changing `theory.js`, `curriculum.js` or
-`store.js`; it prints one line per script and fails if any check does.
+up in its questions, that the notes a Sing question asks for stay in the chosen voice's range, and
+that the offline copy lists every file the page loads. Run `node tone-ladder/tests/run.js` after
+changing `theory.js`, `curriculum.js`, `store.js` or `sw.js`; it prints one line per script and
+fails if any check does.
 
 Saved progress carries a format number (`FORMAT` in `js/store.js`). Bump it whenever the shape
 of saved data changes. A copy of the app that finds a higher number than its own (an open tab

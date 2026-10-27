@@ -7,7 +7,7 @@ const path = require('path');
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
 const dir = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(__dirname, '..', '..', 'static', 'tone-ladder'));
-const SCRIPTS = ['progress-check.js', 'generators-check.js', 'backup-check.js', 'coverage-check.js', 'sing-check.js'];
+const SCRIPTS = ['progress-check.js', 'generators-check.js', 'backup-check.js', 'coverage-check.js', 'sing-check.js', 'sw-check.js'];
 
 let failed = 0;
 for (const script of SCRIPTS) {

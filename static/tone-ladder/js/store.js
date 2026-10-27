@@ -7,7 +7,7 @@
   const LS_KEY = 'tone-ladder-v1';
   // The saved-data format. A copy of the app that finds a higher number was written by newer code:
   // it leaves that progress alone (no cleaning, no saving) and asks for a reload.
-  const FORMAT = 4; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack
+  const FORMAT = 5; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap
   // Settings that belong to one device (latency calibration, loudness, tempo) and never travel with progress.
   const DEVICE_KEYS = ['tapOffsetMs', 'volume', 'speed'];
   const WINDOW = 20;           // recent answers that decide mastery
@@ -29,6 +29,8 @@
     tapOffsetMs: 0,
     guessFirst: true,       // with the microphone: now and then, grade yourself before the app shows its grade
     singBack: true,         // with the microphone: sing each dictation melody back before naming its notes
+    input: 'ladder',        // how notes are answered: ladder | piano
+    clap: true,             // with the microphone: rhythms can be clapped as well as tapped
     hints: {},
     unlockAll: false,
   };
@@ -60,7 +62,7 @@
   // rebuilt field by field: known keys only, numbers that are finite, levels this curriculum has.
   const ENUMS = {
     labels: ['both', 'solfege', 'numbers'], timbre: ['piano', 'epiano', 'strings', 'organ', 'pure', 'vary'],
-    keyMode: ['rotate', 'each', 'fixed'], context: ['cadence', 'drone'], voice: ['low', 'mid', 'high'],
+    keyMode: ['rotate', 'each', 'fixed'], context: ['cadence', 'drone'], voice: ['low', 'mid', 'high'], input: ['ladder', 'piano'],
   };
   const RANGES = { fixedKey: [0, 11], speed: [0.5, 1.5], volume: [0, 1], dailyGoal: [5, 200], tapOffsetMs: [-400, 400] };
   const ITEM_FIELDS = ['n', 'c', 'e', 'rt', 'last', 'box', 'due', 'bd', 'p'];

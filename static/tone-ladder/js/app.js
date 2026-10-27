@@ -256,11 +256,14 @@
     const met = dayQ >= goal;
     const streak = S.streak();
     const date = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+    // a Home Screen copy on iOS has storage of its own, so the progress made in Safari is not here (elsewhere an installed copy shares the browser's)
+    const installed = window.navigator.standalone === true;
     const welcome = !S.state.onboarded ? `
       <section class="welcome">
         <div>
           <p class="eyebrow">Start here</p>
           <h2>Hear music the way you write it</h2>
+          ${installed ? '<p class="tip">Added to the Home Screen after practising in Safari? This copy starts fresh. In Safari, open Preferences and press Copy my progress, then paste it here under Preferences.</p>' : ''}
           <p>Tone Ladder trains your ear inside a key, the way composers think. Every key has a home note, called Do. The other notes are named by their place counting up from Do: Re, Mi, Fa, Sol, La, Ti, numbered 2 to 7. These names and numbers are called scale degrees. Questions that ask you to name or sing a note in the key start with four chords that set the key; musicians call this a cadence. You start with two notes, Do and Sol, and add one at a time. A new level opens only when the current one is solid.</p>
           <div class="row" style="margin-top:18px"><button class="btn" data-act="soundCheck">Play a sound check</button><button class="btn ghost" data-act="go" data-view="method">How the method works</button></div>
         </div>
@@ -437,7 +440,7 @@
     if (R.bi >= R.plan.length) return finishSession();
     const b = block();
     R.retry = [];
-    if (b.track !== 'sing' && !(b.track === 'melody' && S.settings.singBack)) micRelease();
+    if (b.track !== 'sing' && !(b.track === 'melody' && S.settings.singBack) && !(b.track === 'rhythm' && S.settings.clap)) micRelease();
     R.micSkip = false; R.micErr = null; R.micGate = null;
     if (b.track === 'mix') { b.tracks = reviewable(); if (!b.tracks.length) { b.skipped = true; savePlanNow(); return nextBlock(); } }
     if (R.played && R.plan.length > 1) { R.phase = 'between'; R.q = null; A.stop(); renderSession(); }
@@ -531,7 +534,8 @@
     const lv = tr.levels[L];
     if (b.track !== 'mix' && !S.introSeen(trackId, L)) return showIntro(trackId, L);
     const sb = b.track === 'melody' && !!S.settings.singBack; // sing-back dictation: in a dictation set, not a mixed review
-    if ((trackId === 'sing' || sb) && micGate(trackId)) return;
+    const cl = b.track === 'rhythm' && !!S.settings.clap; // clapped rhythms: in a rhythm set
+    if ((trackId === 'sing' || sb || cl) && micGate(trackId)) return;
     const pool = b.pool || lv.items;
     let item;
     if (tr.picksItem) {
@@ -569,7 +573,8 @@
     R.levelUpNow = null;
     R.singMissed = false;
     R.rPhase = null; R.rResult = null; R.rScored = false; R.taps = [];
-    if (micQuestion(q)) micListen(q); else if (A.micOn) micRelease();
+    if (micQuestion(q)) micListen(q); else if (A.micOn && !cl) micRelease();
+    R.clap = q.kind === 'tap' && cl && A.micOn && !R.micSkip ? { qid: q.id, on: false, floor: 0, leak: 0, last: -1, n: 0 } : null;
     renderSession();
     let lead = 0.08;
     if (drone) {
@@ -638,6 +643,7 @@
       let key = TL.mod12(s);
       if (key === 0 && s > 0 && $('.ladder .rung[data-semi="12"]')) key = 12;
       flash($(`.ladder .rung[data-semi="${key}"]`), ms);
+      flash($(`.piano .pkey[data-semi="${s}"]`) || $(`.piano .pkey[data-semi="${TL.mod12(s)}"]`), ms); // the piano has the octave where it shows it
     }
   }
 
@@ -823,6 +829,55 @@
     m.guess = v;
     S.noteGuess(v === m.result.v);
     renderStage();
+  }
+
+  // ---------- a MIDI keyboard ----------
+  // Chrome and Edge only. A key played answers the way its note would: by its name in the
+  // question's key. The choice is kept per device, like the microphone.
+  const MIDI = { access: null, inputs: [], status: 'off' };
+  const midiSupported = () => !!(navigator.requestMIDIAccess && !micCopy());
+  async function midiConnect() {
+    if (!midiSupported()) { MIDI.status = 'none'; return; }
+    try {
+      if (!MIDI.access) MIDI.access = await navigator.requestMIDIAccess();
+      MIDI.access.onstatechange = () => { midiAttach(); if (app.view === 'prefs') render(); };
+      midiAttach();
+      setDeviceInfo({ midi: 'on' });
+    } catch (e) { MIDI.status = 'blocked'; setDeviceInfo({ midi: 'off' }); }
+    if (app.view === 'prefs') render();
+  }
+  // at boot: only while the browser still grants it, so a withdrawn grant does not mean a prompt on every load
+  async function midiReconnect() {
+    let state = 'granted';
+    try { state = (await navigator.permissions.query({ name: 'midi' })).state; } catch (e) { /* no query here: connect as before */ }
+    if (state === 'granted') midiConnect(); else setDeviceInfo({ midi: 'off' });
+  }
+  function midiAttach() {
+    MIDI.inputs = [...MIDI.access.inputs.values()];
+    MIDI.inputs.forEach((i) => { i.onmidimessage = midiMessage; });
+    MIDI.status = MIDI.inputs.length ? 'on' : 'empty';
+  }
+  function midiDisconnect() {
+    if (MIDI.access) MIDI.access.onstatechange = null; // or the next plug or unplug would attach it all again
+    MIDI.inputs.forEach((i) => { i.onmidimessage = null; });
+    MIDI.inputs = []; MIDI.status = 'off';
+    setDeviceInfo({ midi: 'off' });
+    render();
+  }
+  function midiMessage(e) {
+    const [st, note, vel] = e.data;
+    if ((st & 0xf0) !== 0x90 || !vel) return; // a key going down
+    midiNote(note);
+  }
+  function midiNote(note) {
+    const q = R && R.q;
+    if (!q || R.phase !== 'answering' || q.tonic == null || q.layout !== 'ladder') return;
+    const semi = note - q.tonic;
+    const id = TL.degBySemi(semi).id;
+    if (!q.options.some((o) => o.id === id)) return;
+    A.wake();
+    flash($(`.piano .pkey[data-semi="${semi}"]`) || $(`.piano .pkey[data-semi="${TL.mod12(semi)}"]`), 160);
+    if (q.kind === 'sequence') seqPick(id); else if (q.kind === 'choice') answerChoice(id);
   }
 
   // ---------- answering: sing, checked by the microphone ----------
@@ -1101,6 +1156,7 @@
   // Close the mic: the Sing set or the session ended.
   function micRelease() {
     if (MIC.timer) { clearInterval(MIC.timer); MIC.timer = null; }
+    clapStop();
     if (R) R.mic = null;
     A.micClose();
     A.takeForget();
@@ -1222,7 +1278,8 @@
     const q = R && R.q;
     if (!q || q.kind !== 'tap' || R.rPhase === 'countin' || R.rPhase === 'tapping') return;
     R.rPhase = 'countin';
-    R.taps = [];
+    R.taps = []; R.clapped = false;
+    clapStart();
     renderRhythmState();
     const { events, T0, end } = rhythmEvents(q, false);
     const h = A.play(events, {
@@ -1234,9 +1291,61 @@
     });
     R.rT0 = h.t0 + T0;
     R.rEnd = h.t0 + end;
+    if (R.clap) R.clap.clicks = events.filter((e) => e.countIn != null).map((e) => h.t0 + e.t);
     const id = q.id;
     const wait = (R.rEnd - A.now() + A.latency() + 0.35) * 1000;
     setTimeout(() => { if (R && R.q && R.q.id === id && (R.rPhase === 'tapping' || R.rPhase === 'countin')) evaluateTaps(); }, wait);
+  }
+  // ---------- clapping ----------
+  // A clap is a sudden, broadband burst: the newest few milliseconds of the microphone frame jump
+  // well above both the room and the app's own clicks, whose loudness at the mic is measured during
+  // the count-in (the learner is told not to clap then). A clap counts like a tap at its moment.
+  function clapStart() {
+    const c = R && R.clap;
+    if (!c) return;
+    if (!A.micOn) { R.clap = null; return; } // the mic went away (a hidden tab closes it): back to tapping, and the copy says so
+    Object.assign(c, { on: true, floor: 0, leak: 0, last: -1, n: 0 });
+    if (!MIC.clapTimer) MIC.clapTimer = setInterval(clapTick, 10);
+  }
+  function clapStop() {
+    if (MIC.clapTimer) { clearInterval(MIC.clapTimer); MIC.clapTimer = null; }
+    if (R && R.clap) R.clap.on = false;
+  }
+  function clapTick() {
+    const c = R && R.clap, q = R && R.q;
+    if (!c || !c.on || !q || q.id !== c.qid) { clapStop(); return; }
+    if (!A.micOn) { clapStop(); R.clap = null; renderRhythmState(); return; } // the mic went away: back to tapping, and the copy says so
+    if (!A.running) return; // a paused clock comes back
+    if (R.rPhase !== 'countin' && R.rPhase !== 'tapping') return;
+    const f = A.micFrame();
+    if (!f) return;
+    const sr = A.micRate(), now = A.now();
+    const nNew = Math.max(64, Math.round(sr * 0.012));
+    let eNew = 0, eOld = 0;
+    for (let i = f.length - nNew; i < f.length; i++) eNew += f[i] * f[i];
+    for (let i = 0; i < f.length - nNew; i++) eOld += f[i] * f[i];
+    eNew = Math.sqrt(eNew / nNew); eOld = Math.sqrt(eOld / Math.max(1, f.length - nNew));
+    c.floor = c.floor ? Math.min(eNew, c.floor * 1.01) : eNew;
+    // The burst began somewhere in the newest window, up to a poll ago. A clap answers a click the
+    // learner heard, which left the speakers A.latency() after it was rendered, and the microphone
+    // hears a little late itself: taken off, the clap sits on the schedule clock like a tap does.
+    const at = now - nNew / sr - 0.005 - A.latency() - A.inLatency();
+    // The count-in measures the app's own clicks at the microphone, by time rather than by phase: a
+    // clap a little ahead of the first note is a tap (evaluateTaps allows the same margin), not a
+    // click. Only the clicks themselves count: a chair, a word or a stray clap between them must not
+    // raise the bar for the whole question.
+    if (R.rT0 == null || at < R.rT0 - 0.35 * rhythmTimes(q).beatSec) {
+      if ((c.clicks || []).some((t) => at > t - 0.08 && at < t + 0.2)) c.leak = Math.max(c.leak, eNew);
+      return;
+    }
+    const thr = Math.max(c.leak * 2.5, c.floor * 8, 0.004);
+    if (eNew > thr && eNew > eOld * 2.5 && now - c.last > 0.1) { c.last = now; c.n++; onClap(at); }
+  }
+  function onClap(t) {
+    if (!R || !R.q || R.q.kind !== 'tap' || (R.rPhase !== 'countin' && R.rPhase !== 'tapping')) return;
+    R.taps.push(t); R.clapped = true;
+    const pad = $('#tapPad');
+    if (pad) { pad.classList.add('hit'); setTimeout(() => pad.classList.remove('hit'), 90); }
   }
   const safeTs = (ts) => (ts > 0 && ts <= performance.now() + 50 ? ts : performance.now());
   function onTap(ts) {
@@ -1249,6 +1358,7 @@
   }
   function evaluateTaps() {
     const q = R.q;
+    clapStop();
     const { tickSec, beatSec } = rhythmTimes(q);
     const ons = TL.rhythmOnsets(q.rhythm).map((o) => ({ ...o, t: R.rT0 + o.tick * tickSec }));
     let minGap = Infinity;
@@ -1456,11 +1566,43 @@
 
   // ----- choice -----
   function gridKey(i) { return i < 9 ? String(i + 1) : i === 9 ? '0' : ''; }
+  // A piano of the question's key, from a Sol below Do up to High Do, its keys as they are on the
+  // instrument and named in the key. Only the level's notes answer; the others are drawn dim.
+  function pianoHTML(options, mode, act, state, tonic) {
+    const ids = new Set(options.map((o) => o.id));
+    const lo = tonic - (window.innerWidth < 520 ? 0 : 5), hi = tonic + 12; // the Sol below Do is context, dropped where keys would get too narrow to aim at
+    const isBlack = (m) => [1, 3, 6, 8, 10].includes(TL.mod12(m));
+    // a black key sits between two white ones, so the drawing runs out to a white key at each end
+    let first = lo, last = hi;
+    while (isBlack(first)) first--;
+    while (isBlack(last)) last++;
+    const whites = [];
+    for (let m = first; m <= last; m++) if (!isBlack(m)) whites.push(m);
+    const W = 100 / whites.length;
+    const hints = keyHints(options, mode);
+    const keyOf = (id) => { for (const [k, v] of Object.entries(hints)) if (v === id) return k.startsWith('S') ? '⇧' + k.slice(1) : k; return ''; };
+    const cls = (id) => (state.correct === id ? ' is-correct' : '') + (state.wrong === id ? ' is-wrong' : '') + (state.dim ? ' dim' : '');
+    const keys = [];
+    for (let m = first; m <= last; m++) {
+      const semi = m - tonic, d = TL.degBySemi(semi), id = d.id, on = ids.has(id) && m >= lo && m <= hi, black = isBlack(m);
+      const label = semi === 12 ? (S.settings.labels === 'numbers' ? '1' : 'Do') : degText(id).main;
+      const sub = semi === 12 ? (S.settings.labels === 'both' ? '1' : '') : degText(id).sub || '';
+      const left = black ? (whites.indexOf(m - 1) + 1) * W - W * 0.3 : whites.indexOf(m) * W;
+      const hint = on && semi >= 0 && semi < 12 ? keyOf(id) : ''; // the hint once, on the main octave
+      const k = hint !== sub ? hint : ''; // and not when the number under the name already says it
+      keys.push(`<button class="pkey ${black ? 'black' : 'white'}${on ? '' : ' off'}${on ? cls(id) : ''}" data-act="${act}" data-id="${id}" data-semi="${semi}" style="left:${left.toFixed(2)}%; width:${(black ? W * 0.6 : W).toFixed(2)}%; --h:${d.hue}"${on ? '' : ' disabled'} aria-label="${esc((semi === 12 ? 'High ' : '') + d.sol + ' ' + d.num)}">${k ? `<kbd>${k}</kbd>` : ''}${semi === 0 || semi === 12 ? '<i class="do"></i>' : ''}<span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`);
+    }
+    return `<div class="piano" role="group" aria-label="Piano keys, named in the key">${keys.join('')}</div>`;
+  }
+  // the ladder, or the piano when chosen and the question has a key
+  function notesHTML(q, act, state) {
+    return S.settings.input === 'piano' && q.tonic != null ? pianoHTML(q.options, q.mode, act, state, q.tonic) : ladderHTML(q.options, q.mode, act, state);
+  }
   function choiceBodyHTML() {
     const q = R.q;
     const fb = R.phase === 'feedback';
     const state = fb ? { correct: q.answer, wrong: R.chosen !== q.answer ? R.chosen : null, dim: true } : {};
-    if (q.layout === 'ladder') return `<div>${ladderHTML(q.options, q.mode, 'answer', state)}</div>`;
+    if (q.layout === 'ladder') return `<div>${notesHTML(q, 'answer', state)}</div>`;
     return `<div class="choices">${q.options.map((o, i) => {
       const c = state.correct === o.id ? ' is-correct' : state.wrong === o.id ? ' is-wrong' : '';
       return `<button class="choice${c}" data-act="answer" data-id="${esc(o.id)}"><span class="lbl${o.serif ? ' serif' : ''}">${esc(o.label)}</span>${o.sub ? `<span class="sub">${esc(o.sub)}</span>` : ''}${gridKey(i) ? `<kbd>${gridKey(i)}</kbd>` : ''}</button>`;
@@ -1568,7 +1710,7 @@
     const q = R.q;
     const fb = R.phase === 'feedback';
     const opts = q.layout === 'ladder'
-      ? ladderHTML(q.options, q.mode, 'pick', fb ? { dim: true } : {})
+      ? notesHTML(q, 'pick', fb ? { dim: true } : {})
       : `<div class="choices">${q.options.map((o, i) => `<button class="choice" data-act="pick" data-id="${esc(o.id)}" style="box-shadow: inset 0 -3px 0 oklch(var(--mark-l) var(--mark-c) ${rnHue(o.id)})"><span class="lbl serif">${esc(o.label)}</span>${gridKey(i) ? `<kbd>${gridKey(i)}</kbd>` : ''}</button>`).join('')}</div>`;
     const filled = R.input.every(Boolean);
     return `<div class="slots-wrap${fb ? ' graded' : ''}" style="min-width:0">
@@ -1730,18 +1872,20 @@
   // Shown in place of a question while the mic is being set up.
   function micGateHTML() {
     const g = R.micGate;
-    const skip = `<button class="btn ghost" data-act="micSkipSet">${R.micFor === 'melody' ? 'Skip singing this set' : 'Check myself this set'}</button>`;
+    const skip = `<button class="btn ghost" data-act="micSkipSet">${R.micFor === 'melody' ? 'Skip singing this set' : R.micFor === 'rhythm' ? 'Tap instead this set' : 'Check myself this set'}</button>`;
     let h2, body, actions;
     if (g === 'ask') {
       h2 = 'Let the app hear you?';
-      body = `<p class="lede" style="margin-top:0">${R.micFor === 'melody' ? 'In dictation the app can listen while you sing each melody back before you name its notes. The echo is checked, not scored.' : 'In singing questions the app can listen through your microphone and suggest the grade. It is stricter than your own ear, so Missed is normal at first.'}</p>
-        <p class="muted">The sound is analysed on this device as you sing and is never sent anywhere. Only the current answer is kept, in memory until the next question, so you can save it to your computer if a grade looks wrong. Your browser shows a microphone light during singing sets, and it goes off when the set ends. You can change this in Settings.</p>`;
-      actions = `<button class="btn primary lg" data-act="micYes">Use the microphone <kbd>Enter</kbd></button><button class="btn ghost" data-act="micNo">${R.micFor === 'melody' ? 'Not now' : 'I’ll check myself'}</button>`;
+      body = `<p class="lede" style="margin-top:0">${R.micFor === 'melody' ? 'In dictation the app can listen while you sing each melody back before you name its notes. The echo is checked, not scored.' : R.micFor === 'rhythm' ? 'In rhythm questions the app can hear your claps through the microphone, so you can clap a rhythm instead of tapping it. Keep quiet during the get-ready clicks: that is when it measures the room.' : 'In singing questions the app can listen through your microphone and suggest the grade. It is stricter than your own ear, so Missed is normal at first.'}</p>
+        <p class="muted">The sound is analysed on this device as you ${R.micFor === 'rhythm' ? 'clap' : 'sing'} and is never sent anywhere. Only the current answer is kept, in memory until the next question, so you can save it to your computer if a grade looks wrong. Your browser shows a microphone light during ${R.micFor === 'rhythm' ? 'rhythm' : R.micFor === 'melody' ? 'dictation' : 'singing'} sets, and it goes off when the set ends. You can change this in Settings.</p>`;
+      actions = `<button class="btn primary lg" data-act="micYes">Use the microphone <kbd>Enter</kbd></button><button class="btn ghost" data-act="micNo">${R.micFor === 'melody' ? 'Not now' : R.micFor === 'rhythm' ? 'Tap instead' : 'I’ll check myself'}</button>`;
     } else if (g === 'start') {
-      h2 = R.micFor === 'melody' ? 'Sing it back first' : 'Ready to sing';
+      h2 = R.micFor === 'melody' ? 'Sing it back first' : R.micFor === 'rhythm' ? 'Clap the rhythm' : 'Ready to sing';
       body = R.micFor === 'melody'
         ? '<p class="lede" style="margin-top:0">After each melody plays, sing it back. The app checks the echo, and then you name the notes. Hearing, holding and singing a tune is the path from your head to the page.</p>'
-        : '<p class="lede" style="margin-top:0">The app listens through your microphone during this set.</p>';
+        : R.micFor === 'rhythm'
+          ? '<p class="lede" style="margin-top:0">The app listens for your claps through the microphone during this set; tapping still works too. Keep quiet during the get-ready clicks: that is when it measures the room.</p>'
+          : '<p class="lede" style="margin-top:0">The app listens through your microphone during this set.</p>';
       actions = `<button class="btn primary lg" data-act="micYes">Start <kbd>Enter</kbd></button>${skip}`;
     } else if (g === 'opening') {
       h2 = 'Opening the microphone';
@@ -1756,7 +1900,7 @@
       body = `<p class="lede" style="margin-top:0">${esc((MIC_ERR[R.micErr] || MIC_ERR.other)())}</p>`;
       actions = '<button class="btn primary lg" data-act="micContinue">Continue <kbd>Enter</kbd></button>';
     }
-    return `<div class="between mic-gate"><p class="eyebrow">${R.micFor === 'melody' ? 'Dictation set' : 'Singing set'}</p><h2>${h2}</h2>${body}<div class="row">${actions}</div></div>`;
+    return `<div class="between mic-gate"><p class="eyebrow">${R.micFor === 'melody' ? 'Dictation set' : R.micFor === 'rhythm' ? 'Rhythm set' : 'Singing set'}</p><h2>${h2}</h2>${body}<div class="row">${actions}</div></div>`;
   }
   // the line under the meter, from what the listener reports
   function micLine(q, st) {
@@ -1959,14 +2103,14 @@
     const counting = Array.from({ length: n }, (_, i) => i + 1).join(', ');
     st.textContent = {
       listening: `Listen. ${n} clicks set the beat, then the rhythm plays over the clicks.`,
-      ready: `Your turn. Press Start. After ${n} get-ready clicks, start tapping on the very next click.`,
-      countin: `Get ready. Count along: ${counting}. Start tapping on the next 1.`,
-      tapping: 'Tap where each note starts.',
+      ready: R.clap ? `Your turn. Press Start. Stay quiet through the ${n} get-ready clicks (the app measures the room then), and clap or tap from the very next click.` : `Your turn. Press Start. After ${n} get-ready clicks, start tapping on the very next click.`,
+      countin: R.clap ? `Get ready. Count silently: ${counting}. Clap or tap from the next 1.` : `Get ready. Count along: ${counting}. Start tapping on the next 1.`,
+      tapping: R.clap ? 'Clap or tap where each note starts.' : 'Tap where each note starts.',
       result: R.rResult && R.rResult.pass ? 'In time. Well done.' : 'Not quite. See where the taps landed.',
     }[ph] || '';
     pad.disabled = !(ph === 'ready' || ph === 'countin' || ph === 'tapping');
     pad.classList.toggle('live', ph === 'tapping');
-    pad.innerHTML = ph === 'ready' ? `Start<small>${n} get-ready clicks, then tap</small>` : 'Tap<small>or press Space</small>';
+    pad.innerHTML = ph === 'ready' ? `Start<small>${n} get-ready clicks, then ${R.clap ? 'clap or tap' : 'tap'}</small>` : R.clap ? (ph === 'countin' ? 'Wait<small>clap or tap from the next 1</small>' : 'Tap<small>or clap, or press Space</small>') : 'Tap<small>or press Space</small>';
     const listenBtn = `<button class="btn" data-act="rListen" ${ph === 'countin' || ph === 'tapping' || ph === 'listening' ? 'disabled' : ''}>Listen again</button>`;
     if (ph === 'result') {
       actions.innerHTML = `<button class="btn" data-act="rGo">Try again (practice)</button>${listenBtn}<button class="btn primary" data-act="next">Continue <kbd>Enter</kbd></button>`;
@@ -1986,7 +2130,8 @@
       lines.push(`A tap counts as in time if it lands within ${Math.round(res.tol * 1000)} ms of the note.`);
       if (res.hits) lines.push(Math.abs(res.mean) < 15 ? (res.pass ? 'Your timing was right on the beat.' : 'The taps that landed in time were right on the beat.') : `On average your in-time taps were ${Math.abs(Math.round(res.mean))} ms ${res.mean >= 0 ? 'late' : 'early'}.`);
       const offs = [...res.res.filter((o) => o.hit).map((o) => o.err), ...res.offTaps.map((o) => o.off)];
-      const steadyLate = offs.length >= 3 && offs.every((x) => x > 0.04) && Math.max(...offs) - Math.min(...offs) < 0.08;
+      const clapped = !!R.clapped; // the Calibrate tip is about taps: it does not move claps
+      const steadyLate = !clapped && offs.length >= 3 && offs.every((x) => x > 0.04) && Math.max(...offs) - Math.min(...offs) < 0.08;
       panel.className = 'fb ' + (res.pass ? 'good' : 'bad');
       panel.innerHTML = `<p class="verdict">${res.pass ? 'Correct' : 'Not quite'}</p>
         <p class="explain">${esc(lines.join(' '))}</p>
@@ -1999,7 +2144,7 @@
     } else {
       panel.className = 'fb';
       const countWords = { '6/8': 'Count 1 to 6 with the clicks.', '3/4': 'Count 1 2 3 with the clicks.', '5/4': 'Count 1 2 3, 4 5 with the clicks: a group of three, then two.' }[q.rhythm.meter] || 'Count 1 2 3 4 with the clicks.';
-      panel.innerHTML = `<p class="eyebrow">How to listen</p><p class="tip">${countWords} Tap once where each note starts. A long note still gets only one tap. Do not tap on a rest, which is a silence. You see the pattern after you try.</p>${rhythmSVG(q, null)}`;
+      panel.innerHTML = `<p class="eyebrow">How to listen</p><p class="tip">${countWords} ${R.clap ? 'Clap or tap once where each note starts. A long note still gets only one clap. Stay quiet through the get-ready clicks.' : 'Tap once where each note starts. A long note still gets only one tap.'} Do not tap on a rest, which is a silence. You see the pattern after you try.</p>${rhythmSVG(q, null)}`;
     }
   }
   function rhythmSVG(q, res) {
@@ -2406,13 +2551,18 @@
       render();
     });
   }
+  function midiNote_() {
+    const names = MIDI.inputs.map((i) => i.name).filter(Boolean).join(', ');
+    return { on: `Connected: ${names}. A key played answers a note question, by its name in the question’s key.`, empty: 'Connected, but no keyboard is plugged in. Plug one in and it will be found.', blocked: 'The browser blocked MIDI access. Allow it for this site, then connect again.' }[MIDI.status]
+      || 'Answer note questions by playing them, named in the question’s key. Works in Chrome and Edge.';
+  }
   function micPrefNote() {
     if (window.isSecureContext === false) return 'The microphone needs a secure (https) page, so you check your own singing here.';
     if (!A.micSupported()) return 'This browser cannot use a microphone, so you check your own singing.';
     if (!micAvailable()) return 'The microphone is not available in this copy of Tone Ladder. It works at noaware.io/tone-ladder/.';
     if (MIC.prefErr) return (MIC_PREF_ERR[MIC.prefErr] || MIC_PREF_ERR.other)();
     if (MIC.perm === 'denied') return `The browser blocks the microphone for this site. ${micUnblockHint()}`;
-    return 'In Sing questions the microphone listens and suggests the grade. The sound is analysed on this device and never sent anywhere; only the current answer is kept, until the next question, so you can save it if a grade looks wrong.';
+    return 'The microphone grades Sing questions, hears the melody you sing back in dictation, and hears your claps in rhythm sets. The sound is analysed on this device and never sent anywhere; only the current answer is kept, until the next question, so you can save it if a grade looks wrong.';
   }
   // Sing a slow slide from the lowest comfortable note to the highest: the app picks the singing range.
   const NOTE_NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
@@ -2527,14 +2677,17 @@
         </section>
         <section class="pgroup"><h2>Practice</h2>
           ${row('Note names', '', sel('labels', [['both', 'Solfège and numbers (Sol 5)'], ['solfege', 'Solfège only (Sol)'], ['numbers', 'Numbers only (5)']]))}
+          ${row('Answer notes on', 'The ladder shows the notes by their place in the key. The piano shows the same notes on a keyboard of the question’s key, with its black and white keys.', sel('input', [['ladder', 'The tone ladder'], ['piano', 'Piano keys']]))}
+          ${midiSupported() ? row('MIDI keyboard', midiNote_(), MIDI.status === 'on' || MIDI.status === 'empty' ? '<button class="btn ghost" data-act="midiOff">Disconnect</button>' : '<button class="btn" data-act="midiOn">Connect a MIDI keyboard</button>') : ''}
           ${row('Daily goal', 'Sets the length of the Today plan.', sel('dailyGoal', [[15, '15 questions · about 6 min'], [30, '30 questions · about 12 min'], [50, '50 questions · about 20 min']]))}
           ${row('Auto-advance', 'Move on after a correct answer once the answer has finished playing.', chk('autoAdvance', 'On'))}
           ${row('Your call first', 'With the microphone on, every third singing round asks for your own grade before the app shows what it heard. Judging your singing before you are told is what trains the ear.', chk('guessFirst', 'On'))}
-          ${row('Sing it back first', 'With the microphone on, each dictation melody is sung back before you name its notes. The echo is checked but not scored.', chk('singBack', 'On'))}
+          ${row('Sing it back first', 'With the microphone on, each dictation melody is sung back before you name its notes. The echo is checked but not scored.' + (micPref() === 'off' ? ' Off while the microphone is set to Myself.' : ''), chk('singBack', 'On'))}
+          ${row('Clap rhythms', 'With the microphone on, a rhythm can be clapped as well as tapped. Keep quiet during the get-ready clicks: the app measures the room then.' + (micPref() === 'off' ? ' Off while the microphone is set to Myself.' : ''), chk('clap', 'On'))}
           ${row('Dictation playback', 'Hear each note or chord as you enter it. Easier, but less training of your inner ear.', chk('dictationSound', 'On'))}
           ${row('Singing range', 'Where the answer note plays in singing questions.', sel('voice', CUR.VOICE_LABELS))}
           ${micAvailable() ? '<div class="row"><button class="btn ghost" data-act="micRange">Find my range</button><span class="muted" id="micRangeOut" role="status" style="font-size:13px">Sing a slow slide from your lowest comfortable note to your highest, and the app picks the range for you.</span></div>' : ''}
-          ${row('Check my singing', micPrefNote(), micAvailable() ? `<select id="pref-mic" data-change="micPref">${micPref() ? '' : '<option value="" selected disabled>Not chosen: asks at the next singing set</option>'}<option value="on" ${micPref() === 'on' ? 'selected' : ''}>With the microphone</option><option value="off" ${micPref() === 'off' ? 'selected' : ''}>Myself</option></select>${MIC.prefErr === 'dismissed' ? ' <button class="btn ghost" data-act="micAsk">Ask again</button>' : ''}` : '<span class="muted" style="font-size:13px">Myself</span>')}
+          ${row('Microphone', micPrefNote(), micAvailable() ? `<select id="pref-mic" data-change="micPref">${micPref() ? '' : '<option value="" selected disabled>Not chosen: asks at the next set that can listen</option>'}<option value="on" ${micPref() === 'on' ? 'selected' : ''}>With the microphone</option><option value="off" ${micPref() === 'off' ? 'selected' : ''}>Myself</option></select>${MIC.prefErr === 'dismissed' ? ' <button class="btn ghost" data-act="micAsk">Ask again</button>' : ''}` : '<span class="muted" style="font-size:13px">Myself</span>')}
           ${micAvailable() && micPref() === 'on' ? '<div class="row"><button class="btn ghost" data-act="micTest">Test the microphone</button><span class="muted" id="micTestOut" role="status" style="font-size:13px"></span></div>' : ''}
         </section>
         <section class="pgroup"><h2>Rhythm timing</h2>
@@ -2546,7 +2699,7 @@
           ${row('Open all levels', 'For when you already know some of this. Tracks and levels stay open; mastery still tracks.', chk('unlockAll', 'Open everything'))}
           <div class="move">
             <strong>Move your progress</strong>
-            <span>Copy your progress here, then paste it into Tone Ladder in another browser or on another device, or between noaware.io and the claude.ai version.</span>
+            <span>Copy your progress here, then paste it into Tone Ladder in another browser or on another device, or between noaware.io and the claude.ai version. On an iPhone or iPad, a copy added to the Home Screen keeps its own progress: copy it here, then paste it there.</span>
             <div class="row"><button class="btn" data-act="exportProgress">Copy my progress</button><button class="btn" data-act="importOpen">Paste progress…</button></div>
             ${MOVE.copied ? `<label class="field">Copying was blocked here. Select all of this text and copy it yourself:<textarea id="exportText" readonly>${esc(MOVE.copied)}</textarea></label>` : ''}
             ${MOVE.pasting ? `<label class="field">Paste the progress you copied:<textarea id="importText" placeholder="Paste here">${esc(MOVE.pasted)}</textarea></label>
@@ -2709,7 +2862,13 @@
     singGrade: (d) => singGrade(+d.v),
     singGuess: (d) => singGuess(+d.v),
     micYes: () => micGo(),
-    micNo: () => { setMicPref('off'); toast('You can turn the microphone on later in Settings.', 2200); if (R && R.phase === 'mic') nextQuestion(); },
+    micNo: () => {
+      // declining claps or the sing-back turns that feature off; the microphone choice for singing is its own
+      if (R && R.micFor === 'rhythm') { S.set('clap', false); toast('Claps are off. Preferences → Clap rhythms turns them on.', 2600); }
+      else if (R && R.micFor === 'melody') { S.set('singBack', false); toast('Sing it back first is off. You can turn it on in Preferences.', 2600); }
+      else { setMicPref('off'); toast('You can turn the microphone on later in Settings.', 2200); }
+      if (R && R.phase === 'mic') nextQuestion();
+    },
     micDone: () => micFinish(true),
     micSkipSet,
     micTap: () => { A.ensure(); A.wake(); setTimeout(() => { if (R && R.phase === 'mic' && R.micGate === 'tap') { if (A.running) nextQuestion(); else renderStage(); } }, 200); },
@@ -2718,6 +2877,8 @@
     singCopy,
     micTest,
     micRange,
+    midiOn: () => midiConnect(),
+    midiOff: () => midiDisconnect(),
     takeAsk: (d, el, e) => {
       if (!(R && R.mic)) return;
       R.mic.take = { ask: true };
@@ -2963,6 +3124,7 @@
     if (document.visibilityState === 'hidden') {
       if (A.micOn) { micPause('hidden'); if (MIC.timer) { clearInterval(MIC.timer); MIC.timer = null; } }
       A.micClose(); // also drops a request the browser has not answered yet
+      if (R && R.clap) { clapStop(); R.clap = null; if (R.q && R.q.kind === 'tap') renderRhythmState(); } // the copy stops promising claps
       if (R && R.phase === 'mic' && R.micGate === 'opening') { MIC.gate++; R.micGate = 'start'; renderStage(); }
     }
   });
@@ -2977,5 +3139,8 @@
   applyAudio();
   render();
   S.init().then(() => { applyAudio(); if (app.view !== 'session') render(); });
-  window.__toneLadder = { app, get runner() { return R; }, ACT };
+  // works offline once seen (the site copy only; the claude.ai copy is served another way)
+  if ('serviceWorker' in navigator && !micCopy() && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* no offline copy on this device */ });
+  if (deviceInfo().midi === 'on' && midiSupported()) midiReconnect();
+  window.__toneLadder = { app, get runner() { return R; }, ACT, midiNote };
 })();

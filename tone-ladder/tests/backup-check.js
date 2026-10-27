@@ -25,6 +25,7 @@ S.recordPitch('sing', '3', 30, -30); S.recordPitch('sing', '3', 20, -10); S.reco
 S.noteGuess(true); S.noteGuess(false);
 S.state.settings.guessFirst = false;
 S.state.settings.singBack = false;
+S.state.settings.input = 'piano'; S.state.settings.clap = false;
 // 1. round trip keeps everything
 const text = S.exportText();
 const back = S.parseBackup(text);
@@ -34,10 +35,11 @@ check(back.items['sing:3'] && JSON.stringify(back.items['sing:3'].cl) === JSON.s
 check(back.guess && back.guess.n === 2 && back.guess.a === 1, 'self-check tally did not round-trip');
 check(back.settings.guessFirst === false, 'guessFirst setting did not round-trip');
 check(back.settings.singBack === false, 'singBack setting did not round-trip');
+check(back.settings.input === 'piano' && back.settings.clap === false, 'input and clap settings did not round-trip');
 // a save from before format 3 loads with the defaults for the new fields
-const older = JSON.parse(text); older.state.v = 2; delete older.state.guess; delete older.state.settings.guessFirst; delete older.state.settings.singBack; for (const it of Object.values(older.state.items)) delete it.cl;
+const older = JSON.parse(text); older.state.v = 2; delete older.state.guess; delete older.state.settings.guessFirst; delete older.state.settings.singBack; delete older.state.settings.input; delete older.state.settings.clap; for (const it of Object.values(older.state.items)) delete it.cl;
 const up = S.parseBackup(JSON.stringify(older));
-check(up.guess && up.guess.n === 0 && up.settings.guessFirst === true && up.settings.singBack === true && !Object.values(up.items).some((it) => it.cl), 'an older save did not get the format-3 and format-4 defaults');
+check(up.guess && up.guess.n === 0 && up.settings.guessFirst === true && up.settings.singBack === true && up.settings.input === 'ladder' && up.settings.clap === true && !Object.values(up.items).some((it) => it.cl), 'an older save did not get the format-3 to format-5 defaults');
 // 2. junk and partial input
 for (const junk of ['', 'hello', '[]', '{"tracks":{}}', 'null', '{"state":5}']) { let threw = false; try { S.parseBackup(junk); } catch (e) { threw = /not a Tone Ladder backup/.test(e.message); } check(threw, 'accepted junk ' + junk); }
 // 3. markup payloads are dropped or replaced by safe defaults

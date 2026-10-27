@@ -19,6 +19,7 @@ node tone-ladder/tests/run.js path/to/tone-ladder    # another copy of the app
 | `backup-check.js` | export and import: a round trip, junk refused, markup neutralised, newer copies refused, apply and undo, an impossible stored level clamped |
 | `coverage-check.js` | every item a level introduces turns up in its questions, and not rarely |
 | `sing-check.js` | the notes a Sing question asks for stay in the chosen voice's range; Find Do practice rounds sound Do; intros build |
+| `sw-check.js` | the offline copy: every file the service worker precaches exists, every file the page and its styles load is on its list, requests go to the network first and to the cache when the network fails |
 
 Each script ends with one summary line and exits non-zero on a failure; `run.js` prints that line
 after `ok` or `FAIL` and fails if any script did. The generators are random, so the counts in the

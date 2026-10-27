@@ -325,6 +325,25 @@ main { outline: none; }
 .pattern span { --h: 25; padding: 10px 14px; border-radius: var(--r-sm); background: var(--tint); box-shadow: inset 0 -3px 0 var(--c); font-weight: 700; font-size: 18px; }
 .pattern span.lit { box-shadow: none; }
 .grade { display: flex; flex-wrap: wrap; gap: 8px; }
+/* a piano of the question's key, as an answer */
+.piano { position: relative; height: 150px; width: 100%; max-width: 560px; user-select: none; margin: 6px 0 4px; --key-w: #FAF7F1; --key-w-ink: #1F1B17; --key-w-hover: #EFE9DF; --key-b: #221E1A; --key-b-ink: #EFE9DF; --key-b-hover: #3A342D; --key-line: #B9B1A5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .piano { --key-w: #D9D2C6; --key-w-hover: #E8E1D5; --key-line: #4A443C; } }
+:root[data-theme="dark"] .piano { --key-w: #D9D2C6; --key-w-hover: #E8E1D5; --key-line: #4A443C; }
+.pkey { position: absolute; top: 0; bottom: 0; border: 1px solid var(--key-line); border-radius: 0 0 6px 6px; background: var(--key-w); color: var(--key-w-ink); display: flex; align-items: flex-end; justify-content: center; padding: 0 0 8px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: inset 0 -5px 0 oklch(var(--mark-l) var(--mark-c) var(--h)); transition: background .08s; }
+.pkey.black { height: 58%; bottom: auto; background: var(--key-b); color: var(--key-b-ink); border-color: var(--key-b); z-index: 2; border-radius: 0 0 5px 5px; font-size: 11px; padding-bottom: 6px; box-shadow: inset 0 -4px 0 oklch(var(--mark-l) var(--mark-c) var(--h)); }
+.pkey:not(.off):hover { background: var(--key-w-hover); }
+.pkey.black:not(.off):hover { background: var(--key-b-hover); }
+.pkey.off { opacity: .35; cursor: default; box-shadow: none; }
+.pkey.lit, .pkey.black.lit { background: oklch(var(--lit-l) var(--mark-c) var(--h)); color: var(--lit-ink); }
+.pkey.is-correct { outline: 3px solid var(--good); outline-offset: -3px; }
+.pkey.is-wrong { outline: 3px solid var(--bad); outline-offset: -3px; }
+.pkey.dim:not(.is-correct):not(.is-wrong) { opacity: .5; }
+.pkey span { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.pkey span small { font-size: 10px; font-weight: 500; opacity: .75; }
+.pkey .do { position: absolute; top: 7px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--accent); }
+.pkey kbd { position: absolute; bottom: 46px; left: 50%; transform: translateX(-50%); font-size: 10px; opacity: .8; } /* below the black keys' reach, above the label */
+.pkey.black kbd { bottom: 36px; background: rgba(255, 255, 255, .14); color: inherit; border-color: transparent; }
+@media (max-width: 520px) { .piano { height: 124px; } .pkey { font-size: 11px; padding-bottom: 6px; } .pkey.black { font-size: 10px; } .pkey kbd { display: none; } .pkey.black span small { display: none; } }
 /* sing, checked by the microphone */
 .mic-ask, .mic-panel { display: grid; gap: 10px; max-width: 60ch; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
 .sing.echo { margin-bottom: 18px; }

@@ -278,6 +278,7 @@
     },
     now() { return ctx ? ctx.currentTime : 0; },
     latency() { return ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0; },
+    inLatency() { return ctx ? (ctx.baseLatency || 0.01) : 0.01; }, // the microphone's own delay, about
     // The audio-clock time the listener was hearing at a given performance.now() moment.
     heardTime(perfMs) {
       if (!ctx) return 0;
