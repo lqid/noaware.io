@@ -27,7 +27,10 @@ for (const voice of ['low', 'mid', 'high']) {
       for (let n = 0; n < 40; n++) {
         const item = TL.pick(lv.items);
         const q = sing.generate(L, { tonic, item, voice, practice: n % 2 === 0, fade: n % 3 === 0 });
-        for (const m of sungNotes(q.audio.reveal)) {
+        // an interval question's notes carry no degree: both of them are sung
+        const sung = q.singRoot != null ? q.audio.reveal.flatMap((e) => e.notes) : sungNotes(q.audio.reveal);
+        if (q.singRoot != null && (q.audio.reveal.length !== 2 || q.audio.reveal[0].notes[0] !== q.singRoot || q.audio.reveal[1].notes[0] !== q.singRoot + q.singSemi)) { bad++; console.log('interval reveal differs from what is graded', item); }
+        for (const m of sung) {
           ext[k] = ext[k] || [99, 0];
           ext[k][0] = Math.min(ext[k][0], m); ext[k][1] = Math.max(ext[k][1], m);
           if (m < RANGE[voice][0] || m > RANGE[voice][1]) {

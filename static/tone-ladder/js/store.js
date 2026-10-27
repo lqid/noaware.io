@@ -7,7 +7,7 @@
   const LS_KEY = 'tone-ladder-v1';
   // The saved-data format. A copy of the app that finds a higher number was written by newer code:
   // it leaves that progress alone (no cleaning, no saving) and asks for a reload.
-  const FORMAT = 3; // 3: intonation samples on items, self-check tallies, the guessFirst setting
+  const FORMAT = 4; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack
   // Settings that belong to one device (latency calibration, loudness, tempo) and never travel with progress.
   const DEVICE_KEYS = ['tapOffsetMs', 'volume', 'speed'];
   const WINDOW = 20;           // recent answers that decide mastery
@@ -28,6 +28,7 @@
     voice: 'mid',
     tapOffsetMs: 0,
     guessFirst: true,       // with the microphone: now and then, grade yourself before the app shows its grade
+    singBack: true,         // with the microphone: sing each dictation melody back before naming its notes
     hints: {},
     unlockAll: false,
   };

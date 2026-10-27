@@ -28,12 +28,16 @@
     return b;
   }
   const mod12 = (n) => ((n % 12) + 12) % 12;
+  const an = (word) => (/^[aeiou]/i.test(word) ? 'an' : 'a'); // the article before a name ("an Octave")
   const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
   const KEY_NAMES = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
   const MINOR_KEY_NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'B♭', 'B'];
+  // the modes, as a composer names them; 'minor' is the do-based natural minor
+  const MODE_NAMES = { major: 'major', minor: 'minor', dorian: 'Dorian', mixolydian: 'Mixolydian', lydian: 'Lydian', phrygian: 'Phrygian' };
+  const minorLike = (mode) => mode === 'minor' || mode === 'dorian' || mode === 'phrygian';
   const keyName = (tonicMidi, mode) =>
-    (mode === 'minor' ? MINOR_KEY_NAMES : KEY_NAMES)[mod12(tonicMidi)] + (mode === 'minor' ? ' minor' : ' major');
+    (minorLike(mode) ? MINOR_KEY_NAMES : KEY_NAMES)[mod12(tonicMidi)] + ' ' + (MODE_NAMES[mode] || 'major');
 
   // ---------- scale degrees (movable do, do-based minor) ----------
   // hue: the degree's color on the tone ladder; chromatic degrees sit between their neighbours.
@@ -58,7 +62,13 @@
   const MODE_SCALE = {
     major: ['1', '2', '3', '4', '5', '6', '7'],
     minor: ['1', '2', 'b3', '4', '5', 'b6', 'b7'],
+    dorian: ['1', '2', 'b3', '4', '5', '6', 'b7'],
+    mixolydian: ['1', '2', '3', '4', '5', '6', 'b7'],
+    lydian: ['1', '2', '3', '#4', '5', '6', '7'],
+    phrygian: ['1', 'b2', 'b3', '4', '5', 'b6', 'b7'],
   };
+  // the note that gives each mode away, against the major or minor it is nearest to
+  const MODE_SIGN = { dorian: '6', mixolydian: 'b7', lydian: '#4', phrygian: 'b2' };
 
   // Each degree resolves stepwise to the nearest Do (Benbassat-style resolution).
   // Values are semitones from Do; 12 = the Do above.
@@ -72,19 +82,34 @@
       6: [6, 7, 8, 10, 12], 7: [7, 8, 10, 12], 8: [8, 10, 12], 9: [9, 11, 12], 10: [10, 12], 11: [11, 12],
     },
   };
+  // A mode walks home through its own notes: the nearest table (minor for Dorian and Phrygian,
+  // major for the others), with the steps that would pass through a note the mode lacks rewritten.
+  const MODE_RESOLVE = {
+    dorian: { 6: [6, 7, 9, 10, 12], 7: [7, 9, 10, 12], 8: [8, 7, 5, 3, 2, 0], 9: [9, 10, 12] },
+    mixolydian: { 6: [6, 7, 9, 10, 12], 7: [7, 9, 10, 12], 9: [9, 10, 12] },
+    phrygian: { 3: [3, 1, 0], 4: [4, 3, 1, 0], 5: [5, 3, 1, 0], 9: [9, 10, 12] },
+    lydian: { 8: [8, 7, 6, 4, 2, 0] },
+  };
   function resolutionPath(semiAbs, mode) {
     const oct = Math.floor(semiAbs / 12);
     const pc = semiAbs - oct * 12;
-    return RESOLVE[mode === 'minor' ? 'minor' : 'major'][pc].map((p) => p + oct * 12);
+    const over = MODE_RESOLVE[mode];
+    return ((over && over[pc]) || RESOLVE[minorLike(mode) ? 'minor' : 'major'][pc]).map((p) => p + oct * 12);
   }
 
   // ---------- cadence (I–IV–V7–I with smooth voice leading), offsets from tonic ----------
   const CADENCE = {
     major: [[-12, 4, 7, 12], [-7, 5, 9, 12], [-5, 5, 7, 11], [-12, 4, 7, 12]],
     minor: [[-12, 3, 7, 12], [-7, 5, 8, 12], [-5, 5, 7, 11], [-12, 3, 7, 12]],
+    // a mode has no V7: these vamps set it with its own chords and end on home (no parallels, no
+    // note outside the mode, the bass moving by step or a leap it can sing)
+    dorian: [[-12, 3, 7, 12], [-7, 5, 9, 12], [-5, 2, 7, 10], [-12, 3, 7, 12]],         // i IV v i
+    mixolydian: [[-12, 4, 7, 12], [-14, 5, 10, 14], [-7, 5, 9, 12], [-12, 4, 7, 12]],   // I ♭VII IV I
+    lydian: [[-12, 4, 7, 12], [-10, 2, 6, 9], [-5, 4, 7, 12], [-12, 4, 7, 12]],         // I II I(on Sol) I
+    phrygian: [[-12, 3, 7, 12], [-7, 5, 8, 13], [-14, 5, 10, 13], [-12, 3, 7, 12]],     // i ♭II(on Fa) ♭vii i
   };
   function cadenceEvents(tonic, mode, start = 0, beat = 0.62) {
-    const ch = CADENCE[mode === 'minor' ? 'minor' : 'major'];
+    const ch = CADENCE[mode] || CADENCE.major;
     return ch.map((c, i) => ({
       t: start + i * beat,
       notes: c.map((o) => tonic + o),
@@ -163,6 +188,13 @@
     'V/V': { root: 2, q: 'maj', fn: 'PD', desc: 'A major chord built on Re. It acts as the V of V, so it leans hard toward V.' },
     'V/vi': { root: 4, q: 'maj', fn: 'PD', desc: 'A major chord built on Mi. It acts as the V of vi and pulls toward vi.' },
     'V/ii': { root: 9, q: 'maj', fn: 'PD', desc: 'A major chord built on La. It acts as the V of ii and pulls toward ii.' },
+    I64: { root: 0, q: 'maj', inv: 2, fn: 'D', desc: 'I with Sol in the bass: the cadential six-four. It sounds like home but sits on V’s bass, so it is really a decoration of V, and it goes on to V or V7.' },
+    V65: { root: 7, q: 'dom7', inv: 1, fn: 'D', desc: 'V7 with Ti in the bass. The bass presses up into Do; it resolves to I.' },
+    V43: { root: 7, q: 'dom7', inv: 2, fn: 'D', desc: 'V7 with Re in the bass. A passing chord: the bass steps down to Do or up to Mi.' },
+    V42: { root: 7, q: 'dom7', inv: 3, fn: 'D', desc: 'V7 with Fa in the bass. Fa must fall to Mi, so it resolves to I6.' },
+    'V7/V': { root: 2, q: 'dom7', fn: 'PD', desc: 'The V7 of V: a seventh chord on Re that pulls hard toward V. Held long enough, it makes V sound like a new home.' },
+    'V7/IV': { root: 0, q: 'dom7', fn: 'PD', desc: 'The home chord with Te added: the V7 of IV. It tips the music toward IV.' },
+    'V7/vi': { root: 4, q: 'dom7', fn: 'PD', desc: 'The V7 of vi: a seventh chord on Mi that pulls toward vi, the relative minor.' },
     i: { root: 0, q: 'min', fn: 'T', desc: 'The home chord of a minor key. Home, in shadow.' },
     'ii°': { root: 2, q: 'dim', fn: 'PD', desc: 'The diminished chord built on Re in minor. Tense; it leads toward V.' },
     III: { root: 3, q: 'maj', fn: 'T', desc: 'The major chord built on Me. A ray of light inside a minor key.' },
@@ -184,10 +216,10 @@
   const NEXT = {
     I: { IV: 3, V: 3, vi: 3, ii: 2, iii: 1, I6: 1, V6: 1, iv: 1, '♭VI': 1, '♭VII': 1, 'V/V': 1, 'V/vi': 1, 'V/ii': 1, 'vii°': 0.6, V7: 1.5, ii6: 1 },
     I6: { IV: 3, ii: 2, ii6: 2, V: 2, V7: 1, vi: 0.5 },
-    ii: { V: 4, V7: 3, 'vii°': 1, I6: 1, V6: 1 },
-    ii6: { V: 4, V7: 3, V6: 0.5, I6: 0.5 },
+    ii: { V: 4, V7: 3, 'vii°': 1, I6: 1, V6: 1, I64: 2, V65: 0.5 },
+    ii6: { V: 4, V7: 3, V6: 0.5, I6: 0.5, I64: 2 },
     iii: { vi: 3, IV: 2, ii: 1, 'V/vi': 0.5 },
-    IV: { V: 3, I: 2, ii: 1, V7: 2, iv: 2, I6: 1, 'vii°': 0.6, V6: 0.5, vi: 0.5 },
+    IV: { V: 3, I: 2, ii: 1, V7: 2, iv: 2, I6: 1, 'vii°': 0.6, V6: 0.5, vi: 0.5, I64: 2, V42: 0.5 },
     V: { I: 4, i: 4, vi: 2, VI: 2, I6: 1, V7: 0.5 },
     V6: { I: 4, i: 4, vi: 0.5 },
     V7: { I: 4, i: 4, vi: 1.5, VI: 1.5 },
@@ -199,6 +231,14 @@
     'V/V': { V: 4, V7: 3 },
     'V/vi': { vi: 4 },
     'V/ii': { ii: 4, ii6: 1 },
+    I64: { V: 4, V7: 4 },
+    V65: { I: 4 },
+    V43: { I: 3, I6: 3 },
+    V42: { I6: 4 },
+    'V7/V': { V: 4 },
+    'V7/IV': { IV: 4 },
+    'V7/vi': { vi: 4 },
+    '♭III': { I: 3, '♭VI': 1, IV: 1, V: 1 },
     i: { iv: 3, V: 3, VI: 3, III: 2, VII: 2, 'ii°': 1.5, V7: 1.5, v: 1 },
     'ii°': { V: 4, V7: 3 },
     III: { VI: 3, iv: 2, VII: 1 },
@@ -207,7 +247,9 @@
     v: { VI: 2, iv: 2, i: 1 },
   };
 
-  function genProgression({ pool, length = 4, mode = 'major', allowRepeat = false, focus = [], tries = 80 }) {
+  // `bias`: extra next-chord weights for this call, as { from: { to: weight } } (a level can let
+  // a chord go somewhere it normally does not, without changing the table for every level)
+  function genProgression({ pool, length = 4, mode = 'major', allowRepeat = false, focus = [], tries = 80, bias = {} }) {
     const tonicRN = mode === 'minor' ? 'i' : 'I';
     const inPool = new Set(pool);
     let best = null;
@@ -215,7 +257,7 @@
       const seq = [tonicRN];
       for (let k = 1; k < length; k++) {
         const cur = seq[k - 1];
-        const table = NEXT[cur] || {};
+        const table = { ...(NEXT[cur] || {}), ...(bias[cur] || {}) };
         const entries = [];
         for (const name of pool) {
           let w = table[name] || 0;
@@ -929,9 +971,11 @@
   };
   const cellLen = (c) => RCELLS[c].ticks.reduce((a, t) => a + Math.abs(t), 0);
 
+  // ticks per bar and per beat (a quarter note is 12 ticks); 5/4 is counted in a group of three
+  // beats then two
+  const METERS = { '4/4': [48, 12], '3/4': [36, 12], '5/4': [60, 12], '6/8': [36, 18] };
   function genRhythm({ cells, focus = [], bars = 1, meter = '4/4' }) {
-    const barTicks = meter === '6/8' ? 36 : 48;
-    const beat = meter === '6/8' ? 18 : 12;
+    const [barTicks, beat] = METERS[meter] || METERS['4/4'];
     for (let attempt = 0; attempt < 200; attempt++) {
       const out = [];
       let ok = true;
@@ -993,8 +1037,8 @@
   }
 
   Object.assign(TL, {
-    rand, randInt, pick, weightedPick, shuffle, mod12, mtof,
-    KEY_NAMES, MINOR_KEY_NAMES, keyName,
+    rand, randInt, pick, weightedPick, shuffle, mod12, mtof, an,
+    KEY_NAMES, MINOR_KEY_NAMES, MODE_NAMES, MODE_SIGN, minorLike, keyName, METERS,
     DEGREES, DEG, degBySemi, MODE_SCALE, resolutionPath,
     CADENCE, cadenceEvents, cadenceLength,
     INTERVALS, IV, CHORD_TYPES, chordVoicing,

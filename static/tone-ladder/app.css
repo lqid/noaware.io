@@ -327,6 +327,7 @@ main { outline: none; }
 .grade { display: flex; flex-wrap: wrap; gap: 8px; }
 /* sing, checked by the microphone */
 .mic-ask, .mic-panel { display: grid; gap: 10px; max-width: 60ch; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.sing.echo { margin-bottom: 18px; }
 .mic-ask p { color: var(--ink-2); }
 .mic-meter { --lv: 0; width: min(320px, 100%); height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
 .mic-meter i { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(var(--lv)); background: var(--muted); transition: transform .06s linear; }

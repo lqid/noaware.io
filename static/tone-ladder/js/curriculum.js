@@ -55,6 +55,10 @@
     'b6': 'The bittersweet note borrowed from minor: La lowered by a half step. It sinks toward Sol.',
     'b2': 'Exotic and dark: Re lowered by a half step. It slides down onto Do.',
     '6min': 'In a minor key, raising Le to La brightens the scale (the dorian color).',
+    '6:dorian': 'The note that makes Dorian: La where minor would have Le. Against Me it sounds hopeful; the chord on Fa turns major because of it.',
+    'b7:mixolydian': 'The note that makes Mixolydian: Te where major would have Ti. A whole step under Do, it leans down rather than up, so the music never quite closes.',
+    '#4:lydian': 'The note that makes Lydian: Fi where major would have Fa. A half step under Sol, it floats upward instead of leaning down onto Mi.',
+    'b2:phrygian': 'The note that makes Phrygian: Ra where minor would have Re. A half step over Do, it presses down onto it.',
     '7min': 'In a minor key, raising Te to Ti gives a leading tone that pulls hard into Do.',
   };
   const DEG_L1_NOTE = {
@@ -82,7 +86,28 @@
     { name: 'All twelve', items: ALL12, introduce: ['b2'], note: 'Every note, each heard as a color against the key.' },
     { name: 'Minor keys', mode: 'minor', items: ['1', '2', 'b3', '4', '5', 'b6', 'b7'], introduce: [], note: 'The four chords now set a minor key, which sounds darker (i–iv–V7–i). Me, Le and Te (♭3, ♭6, ♭7) are now the normal notes of the scale. Listen for how Do still feels like home.' },
     { name: 'Raised 6 and 7 in minor', mode: 'minor', items: ['1', '2', 'b3', '4', '5', 'b6', 'b7', '6', '7'], introduce: ['6', '7'] },
+    // the modes: each is major or minor with one note changed, and that note is its color
+    { name: 'Dorian', mode: 'dorian', items: ['1', '2', 'b3', '4', '5', '6', 'b7'], introduce: ['6'], note: 'Dorian is minor with La instead of Le: a raised sixth. The chords that set it are i, IV (major, because of La) and v. Think of “Scarborough Fair”, or a brooding film cue that refuses to be sad.' },
+    { name: 'Mixolydian', mode: 'mixolydian', items: ['1', '2', '3', '4', '5', '6', 'b7'], introduce: ['b7'], note: 'Mixolydian is major with Te instead of Ti: a lowered seventh. No note pulls up into Do, so it rolls along without needing to finish. The chords: I, ♭VII and IV. Rock, folk and the open road.' },
+    { name: 'Lydian', mode: 'lydian', items: ['1', '2', '3', '#4', '5', '6', '7'], introduce: ['#4'], note: 'Lydian is major with Fi instead of Fa: a raised fourth. Bright, floating, wide open. The chords: I and II (major, because of Fi). The sound of wonder in film scores.' },
+    { name: 'Phrygian', mode: 'phrygian', items: ['1', 'b2', 'b3', '4', '5', 'b6', 'b7'], introduce: ['b2'], note: 'Phrygian is minor with Ra instead of Re: a lowered second, a half step above Do. Dark and Spanish. The chords: i, ♭II and ♭vii.' },
+    { name: 'Name the mode', type: 'mode', items: ['major', 'minor', 'dorian', 'mixolydian', 'lydian', 'phrygian'], introduce: [], task: 'You hear a few chords, then a scale up and down. Choose which mode it is.', note: 'Now the other way round: you hear a few chords and a scale, and name the mode. Listen for the third first (major or minor), then for the one note that gives the mode away: La in Dorian, Te in Mixolydian, Fi in Lydian, Ra in Phrygian.' },
   ];
+  const MODE_TEXT = {
+    major: 'Bright and settled: Mi and Ti, with Ti pulling up into Do.',
+    minor: 'Dark and settled: Me, Le and Te. Home is still Do.',
+    dorian: 'Minor, but with La: a raised sixth that keeps it from sinking.',
+    mixolydian: 'Major, but with Te: a lowered seventh, so nothing pulls up into Do.',
+    lydian: 'Major, but with Fi: a raised fourth, bright and floating.',
+    phrygian: 'Minor, but with Ra: a lowered second, a half step above Do.',
+  };
+  // a mode's chords, then its scale up and back down to Do
+  function modeEvents(tonic, mode, start = 0) {
+    const scale = TL.MODE_SCALE[mode].map((id) => DEG[id].semi);
+    const run = [...scale, 12, ...scale.slice(1).reverse(), 0];
+    const t1 = start + TL.cadenceLength() + GAP;
+    return [...TL.cadenceEvents(tonic, mode, start), ...seqEvents(run.map((x) => tonic + x), t1, 0.3, 1.0, (i) => ({ deg: TL.degBySemi(run[i]).id }))];
+  }
 
   const degrees = {
     id: 'degrees',
@@ -97,7 +122,7 @@
     picksItem: true,
     usesKey: true,
     modeOf: (L) => DEG_LEVELS[L].mode || 'major',
-    itemLabel: (id) => `${DEG[id].sol} (${DEG[id].num})`,
+    itemLabel: (id) => (DEG[id] ? `${DEG[id].sol} (${DEG[id].num})` : TL.MODE_NAMES[id] ? TL.MODE_NAMES[id][0].toUpperCase() + TL.MODE_NAMES[id].slice(1) : id),
     intro(L, opts) {
       const { tonic } = opts;
       const lv = DEG_LEVELS[L];
@@ -105,7 +130,7 @@
       const cl = TL.cadenceLength();
       const cards = lv.introduce.map((id) => {
         const semi = DEG[id].semi;
-        const textKey = mode === 'minor' && (id === '6' || id === '7') ? id + 'min' : id;
+        const textKey = DEG_TEXT[id + ':' + mode] ? id + ':' + mode : mode === 'minor' && (id === '6' || id === '7') ? id + 'min' : id;
         // nearby notes from this level, including High Do, so there are always a few to compare
         const semis = sortBySemi(lv.items).map((x) => DEG[x].semi);
         if (lv.items.includes('1')) semis.push(12);
@@ -132,14 +157,35 @@
         };
       });
       const note = L === 0 ? degL1Note(opts) : lv.note;
+      if (lv.type === 'mode') {
+        return { title: lv.name, note, cards: [], demos: lv.items.map((m) => ({ label: TL.MODE_NAMES[m][0].toUpperCase() + TL.MODE_NAMES[m].slice(1), events: modeEvents(tonic, m) })) };
+      }
       return {
-        title: lv.introduce.length ? 'Meet ' + lv.introduce.map((x) => DEG[x].sol).join(' and ') : lv.name,
+        title: lv.introduce.length && (mode === 'major' || mode === 'minor') ? 'Meet ' + lv.introduce.map((x) => DEG[x].sol).join(' and ') : lv.name,
         note, cards,
         demos: cards.length ? [] : [{ label: 'Hear the four chords', events: TL.cadenceEvents(tonic, mode) }],
       };
     },
     generate(L, { tonic, item, withContext = true, pool, maxLevel, labels }) {
       const lv = DEG_LEVELS[L];
+      if (lv.type === 'mode') {
+        // the mode's own chords and scale; the answer is its name
+        const items = pool || lv.items;
+        const cap = (m) => TL.MODE_NAMES[m][0].toUpperCase() + TL.MODE_NAMES[m].slice(1);
+        const sign = TL.MODE_SIGN[item];
+        return {
+          kind: 'choice', layout: 'grid', mode: item, tonic, withContext: true, hideKey: true,
+          prompt: 'A few chords, then a scale. Which mode is it?',
+          options: items.map((m) => ({ id: m, label: cap(m), sub: m === 'major' || m === 'minor' ? '' : (m === 'dorian' || m === 'phrygian' ? 'minor with ' : 'major with ') + DEG[TL.MODE_SIGN[m]].sol })),
+          answer: item, stats: [item],
+          audio: { main: modeEvents(tonic, item), parts: { context: TL.cadenceEvents(tonic, item) }, reveal: modeEvents(tonic, item) },
+          replays: [{ part: 'main', label: 'Replay', key: 'Space' }, { part: 'context', label: 'Just the chords' }],
+          compare: (m) => modeEvents(tonic, m),
+          listenTip: 'Listen for the third first: bright (major) or dark (minor). Then for the one note that gives the mode away as the scale runs: La in Dorian, Te in Mixolydian, Fi in Lydian, Ra in Phrygian.',
+          explain: MODE_TEXT[item] + (sign ? ` Listen for ${nameOf(sign, labels)}.` : ''),
+          explainLabel: cap(item),
+        };
+      }
       const mode = lv.mode || 'major';
       const items = pool || lv.items;
       const d = DEG[item];
@@ -358,8 +404,18 @@
     { name: 'Borrowed chords', pool: ['I', 'ii', 'IV', 'V', 'vi', 'iv', '♭VI', '♭VII'], introduce: ['iv', '♭VI', '♭VII'], length: 5, note: 'Chords borrowed from the minor key with the same Do. A staple of film scoring.' },
     { name: 'Secondary dominants', pool: ['I', 'ii', 'IV', 'V', 'vi', 'V7', 'V/V', 'V/vi', 'V/ii'], introduce: ['V/V', 'V/vi', 'V/ii'], length: 5, note: 'A secondary dominant is a major chord that points at another chord the way V points at I. V/V points at V.' },
     { name: 'Minor keys', mode: 'minor', pool: ['i', 'ii°', 'III', 'iv', 'V', 'VI', 'VII'], introduce: ['i', 'iv', 'V', 'VI', 'III', 'VII', 'ii°'], length: 5 },
+    { name: 'Chromatic mediants', pool: ['I', 'IV', 'V', 'vi', 'iii', '♭III', '♭VI', 'V/vi', 'V/ii'], introduce: ['♭III'], length: 5, bias: { I: { '♭III': 2, '♭VI': 2, 'V/vi': 1.5, 'V/ii': 1.5 }, 'V/vi': { I: 2, IV: 1 }, 'V/ii': { I: 2, IV: 1 }, '♭VI': { I: 2, '♭III': 1 } }, note: 'A chromatic mediant is a major chord a third away from I that shares one note with it and changes the others: ♭III (on Me), ♭VI (on Le), and the major chords on Mi and La. When those last two lead to vi or ii they are V/vi and V/ii, the names you met; here they are used as colors instead, side by side with I, and keep those names. This is the sound of the epic turn in a film score.' },
+    { name: 'Cadential 6/4 and V7 inversions', pool: ['I', 'I6', 'ii', 'ii6', 'IV', 'V', 'V7', 'vi', 'I64', 'V65', 'V43', 'V42'], introduce: ['I64', 'V65', 'V43', 'V42'], length: 5, bias: { I: { V65: 1.5, V43: 1.5, V42: 1 }, vi: { V43: 1, V65: 1 }, IV: { V42: 1.5, V65: 0.5 }, ii: { V43: 0.5 } }, note: 'Four chords that change only the bass. I64 is the home chord over Sol: it sounds like I but acts as a decoration of V, and goes on to V or V7. V65, V43 and V42 are V7 with Ti, Re or Fa in the bass. Follow the bass: it tells you which one you heard, and where it has to go.' },
+    { name: 'Modulation', type: 'modulate', items: ['stay', 'toV', 'toIV', 'tovi'], introduce: [], task: 'You hear four chords in a key, then a progression. Choose where it ends up: home, or a new key.', note: 'A progression can move house: a chord from the new key arrives, then a cadence makes that key sound like home. You hear the four chords in the old key, then a progression. Does it stay home, or end up in a new key: the key of V (a fifth up, brighter), the key of IV (a fifth down, softer), or vi, the relative minor?' },
   ];
-  HA_LEVELS.forEach((lv) => (lv.items = lv.pool));
+  // the four ways a short progression can go, as chords of the old key
+  const MODULATIONS = {
+    stay: { label: 'Stays home', to: null, seqs: [['I', 'IV', 'V7', 'I'], ['I', 'vi', 'IV', 'V', 'I'], ['I', 'ii', 'V7', 'I']] },
+    toV: { label: 'To the key of V', to: 7, mode: 'major', seqs: [['I', 'IV', 'I', 'V/V', 'V7/V', 'V'], ['I', 'vi', 'V/V', 'V7/V', 'V'], ['I', 'ii', 'V7/V', 'V']] },
+    toIV: { label: 'To the key of IV', to: 5, mode: 'major', seqs: [['I', 'V', 'I', 'V7/IV', 'IV', '♭VII', 'IV'], ['I', 'V7/IV', 'IV', '♭VII', 'IV'], ['I', 'vi', 'V7/IV', 'IV', '♭VII', 'IV']] },
+    tovi: { label: 'To vi, the relative minor', to: 9, mode: 'minor', seqs: [['I', 'IV', 'V/vi', 'V7/vi', 'vi'], ['I', 'vi', 'V7/vi', 'vi'], ['I', 'IV', 'V7/vi', 'vi']] },
+  };
+  HA_LEVELS.forEach((lv) => (lv.items = lv.pool || lv.items)); // a chord level's items are its pool; the modulation level names its own
   function progEvents(voicings, t = 0, beat = 1.05) {
     return voicings.map((v, i) => noteEv(t + i * beat, v, i === voicings.length - 1 ? 1.7 : beat * 0.94, { vel: 0.62, slot: i }));
   }
@@ -372,10 +428,10 @@
     const pairs = Object.values(byBass).filter((g) => g.length > 1).map((g) => g.join(' and '));
     const inverted = pool.filter((x) => RN[x].inv);
     if (!pairs.length && !inverted.length) return 'Follow the bass, the lowest note. Sing each bass note and name it against Do. Then pick the chord built on that note.';
-    const BASS = { I6: 'Mi under I6', V6: 'Ti under V6', ii6: 'Fa under ii6' };
+    const bassOf = (x) => `${TL.degBySemi(TL.rnBassPc(x)).sol} under ${x}`; // from the chord itself, so a new inversion names its bass too
     return 'Follow the bass, the lowest note, and name it against Do. It narrows the choice'
       + (pairs.length ? `, but here some chords share a bass: ${pairs.join('; ')}.` : '.')
-      + (inverted.length ? ` A chord marked 6 has a different note in the bass: ${inverted.map((x) => BASS[x] || x).join(', ')}.` : '')
+      + (inverted.length ? ` A chord with figures after its numeral (6, 6/4, 6/5, 4/3, 4/2) keeps the same notes but puts a different one in the bass: ${inverted.map(bassOf).join(', ')}.` : '')
       + ` Then listen to the color: major or minor${pool.includes('V7') ? ', with or without the extra tense note' : ''}.`;
   }
   const harmony = {
@@ -389,11 +445,25 @@
     levels: HA_LEVELS,
     usesKey: true,
     modeOf: (L) => HA_LEVELS[L].mode || 'major',
-    itemLabel: (id) => id,
+    itemLabel: (id) => (MODULATIONS[id] ? MODULATIONS[id].label : id),
     intro(L, { tonic, labels }) {
       const lv = HA_LEVELS[L];
       const mode = lv.mode || 'major';
       const T = mode === 'minor' ? 'i' : 'I';
+      if (lv.type === 'modulate') {
+        const cards = lv.items.map((id) => {
+          const m = MODULATIONS[id];
+          const seq = m.seqs[0];
+          const v = TL.voiceProgression(seq, tonic);
+          return {
+            id, title: m.label, serif: false, sub: m.to == null ? 'the old key' : `new Do: ${nameOf(TL.degBySemi(m.to).id, labels)} of the old key`,
+            text: { stay: 'Every chord belongs to the key the four chords set, and it ends on I.', toV: 'A seventh chord on Re (V7 of V) arrives: it belongs to the key of Sol, not the old key, and it makes the chord on Sol sound like a new home.', toIV: 'The home chord gets Te added (V7 of IV), which tips it toward Fa; a chord on Te (IV of the new key) confirms that Fa is now home.', tovi: 'A major chord on Mi, then its seventh (V7 of vi), pulls down onto La: the relative minor, which shares every note of the old key but has a new home.' }[id],
+            sing: 'Sing the bass of the last chord, then the old Do: are they the same note?',
+            demos: [{ label: seq.join(' – '), events: [...TL.cadenceEvents(tonic, 'major'), ...progEvents(v, TL.cadenceLength() + GAP)] }],
+          };
+        });
+        return { title: lv.name, note: lv.note, cards, demos: [] };
+      }
       const cards = lv.introduce.map((id) => {
         let seq;
         if (id === T) seq = [T];
@@ -419,7 +489,29 @@
     generate(L, { tonic, labels }) {
       const lv = HA_LEVELS[L];
       const mode = lv.mode || 'major';
-      const seq = TL.genProgression({ pool: lv.pool, length: lv.length, mode, allowRepeat: lv.allowRepeat, focus: Math.random() < 0.7 ? lv.introduce.filter((x) => x !== 'I' && x !== 'i') : [] });
+      if (lv.type === 'modulate') {
+        const item = pick(lv.items);
+        const m = MODULATIONS[item];
+        const seq = pick(m.seqs);
+        const v = TL.voiceProgression(seq, tonic);
+        const ctx = TL.cadenceEvents(tonic, 'major');
+        const t1 = TL.cadenceLength() + GAP;
+        // the answer: the progression again, then the four chords of the key it ended in
+        const after = (id) => { const d = MODULATIONS[id]; return [...progEvents(v), ...TL.cadenceEvents(d.to == null ? tonic : tonic + d.to, d.mode || 'major', v.length * 1.05 + 1.0)]; };
+        return {
+          kind: 'choice', layout: 'grid', mode: 'major', tonic, withContext: true,
+          prompt: 'After the four chords, a progression plays. Where does it end up?',
+          options: lv.items.map((id) => ({ id, label: MODULATIONS[id].label })),
+          answer: item, stats: [item],
+          audio: { main: [...ctx, ...progEvents(v, t1)], parts: { prog: progEvents(v), bass: bassEvents(v), context: ctx }, reveal: after(item) },
+          replays: [{ part: 'main', label: 'Replay all', key: 'Space' }, { part: 'prog', label: 'Just the progression' }, { part: 'bass', label: 'Bass line' }],
+          compare: (id) => after(id),
+          listenTip: 'Follow the bass. When a chord arrives that does not belong to the old key, notice where the music settles after it, and whether that resting chord is the old Do or a new one.',
+          explain: seq.join(' – ') + (m.to == null ? '' : `, ending in the key of ${nameOf(TL.degBySemi(m.to).id, labels)}`),
+          explainLabel: 'The chords',
+        };
+      }
+      const seq = TL.genProgression({ pool: lv.pool, length: lv.length, mode, allowRepeat: lv.allowRepeat, bias: lv.bias, focus: Math.random() < 0.7 ? lv.introduce.filter((x) => x !== 'I' && x !== 'i') : [] });
       const v = TL.voiceProgression(seq, tonic);
       const answer = seq.slice(1);
       return {
@@ -461,6 +553,8 @@
     { name: 'Eight notes', pool: [-5, -3, -1, 0, 2, 4, 5, 7, 9, 11, 12], length: 8, starts: [0, 4, 7, -5], ends: [0, 12], maxLeap: 12, leapProb: 0.35 },
     { name: 'Chromatic color', pool: [-5, -3, -1, 0, 2, 4, 5, 6, 7, 9, 10, 11, 12], chromatic: { 6: 7, 10: 9 }, length: 6, starts: [0, 4, 7], ends: [0, 12], maxLeap: 7, leapProb: 0.3, introduce: ['#4', 'b7'] },
     { name: 'Minor melodies', mode: 'minor', pool: [-5, -4, -2, -1, 0, 2, 3, 5, 7, 8, 10, 12], chromatic: { '-1': 0 }, length: 6, starts: [0, 3, 7], ends: [0, 12], maxLeap: 7, leapProb: 0.3 },
+    { name: 'Two voices: the bass', duet: 'bass', pool: [0, 2, 4, 5, 7, 9, 11, 12], length: 5, starts: [0, 4, 7], ends: [0, 12], maxLeap: 7, leapProb: 0.3, note: 'Now two voices move together, note against note: a melody on top and a bass underneath. Name the bass notes, the lower voice. The first is Do. Listen under the tune the way you hear the bass of a chord.' },
+    { name: 'Two voices: the top', duet: 'top', pool: [0, 2, 4, 5, 7, 9, 11, 12], length: 5, starts: [0, 4, 7], ends: [0, 12], maxLeap: 7, leapProb: 0.3, note: 'The same two voices. This time name the top voice, the melody, while the bass moves underneath it.' },
   ];
   ME_LEVELS.forEach((lv) => {
     lv.items = sortBySemi([...new Set(lv.pool.map((s) => TL.degBySemi(s).id))]);
@@ -499,6 +593,7 @@
     generate(L, { tonic, withContext = true, labels }) {
       const lv = ME_LEVELS[L];
       const mode = lv.mode || 'major';
+      if (lv.duet) return duetQuestion(lv, tonic, withContext, labels);
       const mel = TL.genMelody(lv);
       const ids = mel.map((s) => TL.degBySemi(s).id);
       const t1 = contextLen(withContext);
@@ -526,6 +621,59 @@
     },
   };
 
+  // A bass under a melody, note against note: consonant with each melody note (a third, fifth,
+  // sixth or octave below), moving mostly by step, from Do and back to Do.
+  function duetBass(mel, maxLeap = 7) {
+    const POOL = [-12, -10, -8, -7, -5, -3];
+    const consonant = (m, b) => [0, 3, 4, 7, 8, 9].includes(TL.mod12(m - b));
+    const perfect = (m, b) => TL.mod12(m - b) === 0 || TL.mod12(m - b) === 7;
+    const out = [];
+    mel.forEach((m, i) => {
+      if (i === 0 || i === mel.length - 1) { out.push(-12); return; }
+      const prev = out[i - 1], last = i === mel.length - 2;
+      // no leap wider than the melody's own, and the last move home to Do must be a move too
+      const legal = POOL.filter((b) => consonant(m, b) && b !== prev && Math.abs(b - prev) <= maxLeap && (!last || (b !== -12 && Math.abs(b + 12) <= maxLeap)));
+      // a second voice, not the tune an octave down: no doubling, no parallel octaves or fifths
+      const good = legal.filter((b) => TL.mod12(m - b) !== 0 && !(perfect(m, b) && perfect(mel[i - 1], prev) && TL.mod12(m - b) === TL.mod12(mel[i - 1] - prev)));
+      const cands = good.length ? good : legal;
+      const contrary = (b) => Math.sign(b - prev) !== Math.sign(m - mel[i - 1]);
+      const weights = cands.map((b) => [b, (Math.abs(b - prev) <= 2 ? 3 : Math.abs(b - prev) <= 5 ? 1.2 : 0.4) * (contrary(b) ? 2 : 1)]);
+      out.push(weights.length ? TL.weightedPick(weights) : prev);
+    });
+    return out;
+  }
+  function duetQuestion(lv, tonic, withContext, labels) {
+    const mel = TL.genMelody(lv);
+    const bass = duetBass(mel, lv.maxLeap);
+    const top = lv.duet === 'bass';
+    const ask = top ? bass : mel, other = top ? mel : bass;
+    const ids = ask.map((s) => TL.degBySemi(s).id);
+    const t1 = contextLen(withContext);
+    const both = mel.map((m, i) => noteEv(t1 + i * 0.7, [tonic + ask[i], tonic + other[i]], i === mel.length - 1 ? 1.3 : 0.65, { slot: i, role: 'target', deg: ids[i] }));
+    const line = (xs) => seqEvents(xs.map((s) => tonic + s), 0, 0.7, 1.3, (i) => ({ slot: i, deg: TL.degBySemi(xs[i]).id }));
+    return {
+      kind: 'sequence', layout: 'ladder', mode: 'major', tonic, withContext, voice: lv.duet,
+      prompt: `Two voices, ${mel.length} notes each. Name the ${top ? 'bass, the lower voice' : 'top voice, the melody'}. Its first note is ${nameOf(ids[0], labels)}; name the other ${mel.length - 1} in order.`,
+      options: lv.pool.map((s) => TL.degBySemi(s).id).filter((id, i, a) => a.indexOf(id) === i).map(degOption),
+      given: [ids[0]], answer: ids.slice(1), stats: ids.slice(1),
+      melody: ask,
+      audio: {
+        main: [...contextEvents(tonic, 'major', withContext), ...both],
+        parts: { both: shift(both, -t1), asked: line(ask), other: line(other), context: TL.cadenceEvents(tonic, 'major') },
+        reveal: line(ask),
+      },
+      replays: [{ part: 'main', label: 'Replay all', key: 'Space' }, { part: 'both', label: 'Just the two voices' }, { part: 'asked', label: top ? 'The bass alone' : 'The top alone' }, { part: 'other', label: top ? 'The top alone' : 'The bass alone' }],
+      compare: (ans) => {
+        let prev = ask[0];
+        const semis = [ask[0], ...ans.map((id) => { const s = nearestSemi(id, prev); prev = s; return s; })];
+        return seqEvents(semis.map((s) => tonic + s), 0, 0.7, 1.3, (i) => ({ deg: TL.degBySemi(semis[i]).id, slot: i }));
+      },
+      tapSound: (id, around) => [noteEv(0, tonic + nearestSemi(id, around), 0.6)],
+      explain: other.map((s) => nameOf(TL.degBySemi(s).id, labels)).join(' – '),
+      explainLabel: top ? 'The top voice was' : 'The bass was',
+    };
+  }
+
   // ======================================================================
   // 6. RHYTHM
   // ======================================================================
@@ -539,6 +687,8 @@
     { name: 'Two bars', cells: ['q', 'ee', 'h', 'qr', 'dqe', 'ssss', 'ess', 'sse', 'eqe', 'ere'], bars: 2, introduce: [], bpm: 74, note: 'Two bars at a time. Chunk it: remember bar one as a single gesture, then bar two.' },
     { name: 'Triplets', cells: ['q', 'ee', 'trip', 'h', 'qr'], introduce: ['trip'], bpm: 70 },
     { name: 'Six-eight', meter: '6/8', cells: ['eee', 'qe', 'eq', 'dq', 'ssee', 'dqr'], introduce: ['eee', 'qe', 'eq', 'dq', 'ssee'], bpm: 56, note: 'Two big beats per bar, each divided in three. Count 1 to 6 with the clicks and feel the lilt.' },
+    { name: 'Three-four', meter: '3/4', cells: ['q', 'h', 'ee', 'dqe', 'qr', 'ssss'], introduce: [], bpm: 88, note: 'Three beats to the bar: the waltz, the minuet, the slow song that sways. Count 1 2 3. The first beat is the heavy one; a half note then takes two of the three.' },
+    { name: 'Five-four', meter: '5/4', cells: ['q', 'h', 'ee', 'dqe', 'qr', 'ssss', 'dh'], introduce: [], bpm: 92, note: 'Five beats to the bar, felt as a group of three and a group of two: 1 2 3, 4 5. The clicks are louder on 1 and on 4. “Take Five”, and the limping walk of a suspense cue.' },
   ];
   RH_LEVELS.forEach((lv) => (lv.items = lv.cells));
   const RH_TEXT = {
@@ -563,14 +713,14 @@
     intro(L) {
       const lv = RH_LEVELS[L];
       const meter = lv.meter || '4/4';
-      const barTicks = meter === '6/8' ? 36 : 48;
+      const [barTicks, beatTicks] = TL.METERS[meter] || TL.METERS['4/4'];
       const cards = lv.introduce.map((c) => {
         let cells = RH_DEMO[c];
         if (!cells) {
           cells = [];
           while (cells.reduce((a, x) => a + TL.cellLen(x), 0) + TL.cellLen(c) <= barTicks) cells.push(c);
         }
-        const r = { cells, ticks: cells.flatMap((x) => TL.RCELLS[x].ticks), meter, bars: 1, barTicks, beat: meter === '6/8' ? 18 : 12 };
+        const r = { cells, ticks: cells.flatMap((x) => TL.RCELLS[x].ticks), meter, bars: 1, barTicks, beat: beatTicks };
         const t = RH_TEXT[c] || {};
         return { id: c, title: TL.RCELLS[c].label, sub: t.sub || '', text: t.text || '', rhythm: r, bpm: lv.bpm, demos: [] };
       });
@@ -605,6 +755,7 @@
     { name: 'Bass lines', type: 'bassline', pool: ['I', 'IV', 'V', 'vi'], length: 4, items: ['bass4'], introduce: [], needs: [{ track: 'harmony', level: 2 }], note: 'After the four chords, a progression plays: four chords in a row. Sing its bass line, the lowest note of each chord, in order. It always starts on Do. Composers hear harmony from the bottom up.' },
     { name: 'Chromatic colors', type: 'degree', items: [...ALL7, 'b7', '#4', 'b3', 'b6', 'b2'], introduce: ['b7', '#4', 'b3', 'b6', 'b2'], needs: [{ track: 'degrees', level: 9 }], note: 'The notes between the scale notes. Each is a color against the key, and each leans toward a neighbor. Find Do, step to the note and hold it. The answer plays the note, then lets it slide where it wants.' },
     { name: 'Minor keys', type: 'degree', mode: 'minor', items: ['1', '2', 'b3', '4', '5', 'b6', 'b7'], introduce: ['b3', 'b6', 'b7'], needs: [{ track: 'degrees', level: 10 }], note: 'The four chords now set a minor key, which sounds darker. Me, Le and Te are its normal notes. Do is still home: find it from the chords, then step as before, through Me instead of Mi.' },
+    { name: 'Sing intervals', type: 'interval', items: ['M2a', 'M3a', 'P4a', 'P5a', 'M6a', 'P8a', 'm3a', 'm6a', 'M2d', 'M3d', 'P4d', 'P5d'], introduce: [], needs: [{ track: 'intervals', level: 3 }], task: 'One note plays, with no key. Sing the named interval above or below it. Then the answer plays, and the app (with the microphone) or you check the singing.', note: 'No key this time: one note plays, and you sing a named interval above or below it. This is how you check a leap you hear in your head before you write it down. Sing the given note first, then the one asked for.' },
   ];
   // the leaning notes and where they go, as semitones from Do
   const RESOLVE_ITEMS = {
@@ -718,7 +869,7 @@
     selfGraded: true,
     voiceLabels: VOICE_LABELS,
     modeOf: (L) => SI_LEVELS[L].mode || 'major',
-    itemLabel: (id) => (DEG[id] ? DEG[id].sol : RN[id] ? 'lowest note of ' + id : RESOLVE_ITEMS[id] ? `${DEG[RESOLVE_ITEMS[id].from].sol} to ${DEG[RESOLVE_ITEMS[id].to].sol}` : TONE_WORD[id] ? `a chord’s ${TONE_WORD[id]}` : id === 'bass4' ? 'bass line' : id.startsWith('echo') ? 'echo' : 'pattern'),
+    itemLabel: (id) => (DEG[id] ? DEG[id].sol : RN[id] ? 'lowest note of ' + id : RESOLVE_ITEMS[id] ? `${DEG[RESOLVE_ITEMS[id].from].sol} to ${DEG[RESOLVE_ITEMS[id].to].sol}` : TONE_WORD[id] ? `a chord’s ${TONE_WORD[id]}` : id === 'bass4' ? 'bass line' : IV[id.slice(0, -1)] ? `${IV[id.slice(0, -1)].name} ${id.endsWith('a') ? 'above' : 'below'}` : id.startsWith('echo') ? 'echo' : 'pattern'),
     intro(L, { tonic, voice, keyMode = 'rotate', labels = 'both', mic = 'none' }) {
       const lv = SI_LEVELS[L];
       const mode = lv.mode || 'major';
@@ -804,6 +955,21 @@
             demos: [
               { label: 'The chord, then note by note', events: [noteEv(0, notes, 1.6, { vel: 0.6 }), ...seqEvents(notes, 1.9, 0.6, 1.0), noteEv(1.9 + notes.length * 0.6 + 0.5, base + nearestSemi(tid, 3), 2.0, organ({ deg: tid }))] },
             ],
+          };
+        });
+        return { title: lv.name, note: lv.note, rangePicker: true, cards, demos: [] };
+      }
+      if (lv.type === 'interval') {
+        const lo = VOICE[voice] ?? VOICE.mid;
+        const cards = ['M3a', 'P5a', 'M3d'].map((it) => {
+          const id = it.slice(0, -1), dir = it.slice(-1), iv = IV[id];
+          const start = dir === 'a' ? lo + 3 : lo + 3 + iv.semi;
+          const target = start + (dir === 'a' ? iv.semi : -iv.semi);
+          return {
+            id: it, title: iv.name, sub: dir === 'a' ? 'above' : 'below',
+            text: `${iv.name}, ${dir === 'a' ? 'going up' : 'going down'}: ${ivDegrees(iv, dir)}.`,
+            sing: 'Sing the given note, then the interval from it, and hold the second note.',
+            demos: [{ label: 'The note, then the interval', events: [noteEv(0, start, 1.0, organ()), noteEv(1.3, target, 2.0, organ())] }],
           };
         });
         return { title: lv.name, note: lv.note, rangePicker: true, cards, demos: [] };
@@ -925,6 +1091,25 @@
           missLabel: 'Hear it note by note',
           parts: { chord: [noteEv(0, notes, 2.2, { vel: 0.6 })] },
           replays: [{ part: 'main', label: 'Replay all', key: 'Space' }, { part: 'chord', label: 'The chord only' }],
+        };
+      } else if (lv.type === 'interval') {
+        const id = item.slice(0, -1), dir = item.slice(-1), iv = IV[id];
+        const lo = VOICE[voice] ?? VOICE.mid;
+        // the given note sits so that both notes stay within the voice's span
+        const start = dir === 'a' ? randInt(lo, lo + 19 - iv.semi) : randInt(lo + iv.semi, lo + 19);
+        const semi = dir === 'a' ? iv.semi : -iv.semi;
+        const word = dir === 'a' ? 'above' : 'below';
+        q = {
+          singRoot: start, singSemi: semi, intervalName: `${iv.name} ${word}`, hideKey: true,
+          prompt: `A note plays. Sing ${TL.an(iv.name)} ${iv.name} ${word} it.`,
+          subline: `Sing the given note first, then the ${iv.name} ${word} it, and hold that note. ${ivDegrees(iv, dir)}.`,
+          main: [noteEv(0, start, 1.4, organ())],
+          reveal: [noteEv(0, start, 0.9, organ()), noteEv(1.1, start + semi, 2.4, organ())],
+          model: [noteEv(0, start, 0.9, organ()), noteEv(1.1, start + semi, 2.0, organ()), noteEv(3.3, [start, start + semi], 1.6, organ({ vel: 0.6 }))],
+          missTip: `${TL.an(iv.name) === 'an' ? 'An' : 'A'} ${iv.name} ${word}: ${ivDegrees(iv, dir)}. Hear both notes, then together.`,
+          missLabel: 'Hear the interval',
+          parts: { note: [noteEv(0, start, 1.4, organ())] },
+          replays: [{ part: 'main', label: 'Replay the note', key: 'Space' }],
         };
       } else if (lv.type === 'bassline') {
         // at least three different chords, so the line is a line and not a see-saw
