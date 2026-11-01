@@ -71,9 +71,12 @@
   const DURS = Object.keys(DUR).map(Number);
   const shapeOf = (t) => DUR[t] || DUR[DURS.reduce((a, b) => (Math.abs(b - t) < Math.abs(a - t) ? b : a))];
   const slot = (t) => 20 + 7 * Math.log2(Math.max(3, t) / 3); // the room a value takes, growing gently with its length
-  const MIDSTEP = { treble: 34, bass: 22 }; // the step on the middle line: B4, D3
+  // treble8 is the treble clef with an 8 under it, as tenor parts are written: the notes sound an
+  // octave lower than written, so its middle line is B3
+  const MIDSTEP = { treble: 34, bass: 22, treble8: 27 }; // the step on the middle line: B4, D3, B3
   const SIG_STEPS = { sharps: [38, 35, 39, 36, 33, 37, 34], flats: [34, 37, 33, 36, 32, 35, 31] }; // treble; the bass clef's sit 14 lower
-  const CLEF_X = { treble: 16, bass: 8 }, CLEF_Y = { treble: 30, bass: 10 }; // where the clef's reference line is
+  const CLEF_X = { treble: 16, bass: 8, treble8: 16 }, CLEF_Y = { treble: 30, bass: 10, treble8: 30 }; // where the clef's reference line is
+  const SIG_DROP = { treble: 0, treble8: 7, bass: 14 }; // the signature's steps below the treble clef's
 
   const r1 = (v) => Math.round(v * 10) / 10;
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -145,7 +148,7 @@
     const key = o.key || { tonic: 0, mode: 'major' }, notes = o.notes || [], px = o.width || 600, U = o.compact ? 0.6 : 0.8;
     const sig = o.sig === false ? {} : keySignature(key), nSig = sig.sharps || sig.flats || 0;
     const sounding = notes.flatMap((n) => (n.rest ? [] : n.midis || [n.midi])).sort((a, b) => a - b);
-    const clef = o.clef === 'treble' || o.clef === 'bass' ? o.clef : sounding.length && sounding[sounding.length >> 1] < 60 ? 'bass' : 'treble';
+    const clef = MIDSTEP[o.clef] ? o.clef : sounding.length && sounding[sounding.length >> 1] < 60 ? 'bass' : 'treble'; // auto never picks treble8
     const MID = MIDSTEP[clef];
     const yOf = (step) => 20 - (step - MID) * 5; // from the top line; a step is half a space
     const hl = new Set(o.highlight || []);
@@ -172,7 +175,7 @@
       return { n, kind, fl, dots, heads, up, shift, accs, lead, w: slot(t) + lead - 6 + (dots ? 5 : 0), tie: n.tie };
     });
     // room above and below the staff for whatever sticks out: ledger lines, stems, the clef
-    let top = -28, bottom = 68;
+    let top = -28, bottom = clef === 'treble8' ? 74 : 68; // room for the 8 under the clef
     for (const it of items) if (it.heads.length) {
       const hi = yOf(it.heads[it.heads.length - 1].step), lo = yOf(it.heads[0].step);
       top = Math.min(top, hi - (it.up ? 38 : 8)); bottom = Math.max(bottom, lo + (it.up ? 8 : 38));
@@ -198,8 +201,9 @@
     const parts = [];
     for (let i = 0; i < 5; i++) parts.push(ln(x0, sTop + i * 10, W - 8, sTop + i * 10, 1));
     for (const bx of bars) parts.push(ln(bx, sTop, bx, sTop + 40, 1.3, 'bar'));
-    parts.push(at(x0 + CLEF_X[clef], sTop + CLEF_Y[clef], GLYPH[clef], 'clef'));
-    for (let k = 0; k < nSig; k++) parts.push(at(sigX + 4 + k * 9, sTop + yOf(SIG_STEPS[sig.sharps ? 'sharps' : 'flats'][k] - (clef === 'bass' ? 14 : 0)), GLYPH[sig.sharps ? 'sharp' : 'flat'], 'sig'));
+    parts.push(at(x0 + CLEF_X[clef], sTop + CLEF_Y[clef], GLYPH[clef === 'treble8' ? 'treble' : clef], 'clef'));
+    if (clef === 'treble8') parts.push(text(x0 + CLEF_X.treble8 + 1, sTop + CLEF_Y.treble8 + 40, '8', 11, 'clef8'));
+    for (let k = 0; k < nSig; k++) parts.push(at(sigX + 4 + k * 9, sTop + yOf(SIG_STEPS[sig.sharps ? 'sharps' : 'flats'][k] - SIG_DROP[clef]), GLYPH[sig.sharps ? 'sharp' : 'flat'], 'sig'));
 
     items.forEach((it, i) => {
       const { heads, up, x, kind } = it, cls = (it.heads.length ? 'note' : 'rest') + (hl.has(i) ? ' hl' : '');

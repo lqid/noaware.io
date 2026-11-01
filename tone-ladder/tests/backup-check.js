@@ -72,6 +72,13 @@ const beyond = T[0].levels.length; // one level past the last this copy has
 const newer = JSON.parse(text).state; newer.tracks.degrees.level = beyond; newer.tracks.degrees.maxLevel = beyond;
 let refused = false; try { S.parseBackup(JSON.stringify(newer)); } catch (e) { refused = /newer Tone Ladder/.test(e.message); }
 check(refused, 'newer-curriculum backup accepted');
+// a backup carrying Sight-Singing comes back with it, and one a level past its last is from a newer copy
+const withSight = JSON.parse(text).state; withSight.tracks.sight = { ...(withSight.tracks.sight || {}), level: 3, maxLevel: 4 };
+const sightBack = S.parseBackup(JSON.stringify(withSight));
+check(sightBack.tracks.sight.level === 3 && sightBack.tracks.sight.maxLevel === 4, 'Sight-Singing did not survive a backup');
+const sightBeyond = JSON.parse(text).state; sightBeyond.tracks.sight = { level: TL.Curriculum.TRACK.sight.levels.length, maxLevel: TL.Curriculum.TRACK.sight.levels.length };
+refused = false; try { S.parseBackup(JSON.stringify(sightBeyond)); } catch (e) { refused = /newer Tone Ladder/.test(e.message); }
+check(refused, 'a Sight-Singing level past the last was not refused as newer');
 const unknownTrack = JSON.parse(text).state; unknownTrack.tracks.composition = { level: 0 };
 refused = false; try { S.parseBackup(JSON.stringify(unknownTrack)); } catch (e) { refused = /newer Tone Ladder/.test(e.message); }
 check(refused, 'unknown-track backup accepted');

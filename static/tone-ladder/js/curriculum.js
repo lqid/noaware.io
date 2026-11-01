@@ -1156,15 +1156,197 @@
   };
 
   // ======================================================================
-  const TRACKS = [degrees, intervals, chords, harmony, melody, rhythm, sing];
+  // 8. SIGHT-SINGING: a melody written on a staff in its key, sung on its names
+  // ======================================================================
+  // Help goes one piece at a time: the names under the notes, then the first note named, then no
+  // names, then no key name (Do from the signature), then the other clef, Fi and Te, and minor.
+  // Every note is a quarter note: the listener checks the notes, not how long each is held.
+  const SIGHT_WIDE = [-5, -3, -1, 0, 2, 4, 5, 7, 9, 11, 12];
+  const SIGHT_LEVELS = [
+    { name: 'Steps from Do', type: 'staff', pool: [0, 2, 4, 5, 7], length: 5, starts: [0], ends: [0, 4, 7], maxLeap: 2, leapProb: 0, names: 'fade', key: 'shown', items: ['steps'], introduce: [], summary: 'Do to Sol · steps · names under the notes',
+      note: 'Now you read the melody from a staff. Each line and each space is the next note of the scale, in order: a line, the space above it, the next line. Every melody starts on Do and moves by step between Do and Sol. A note below or above the staff sits on a short ledger line, and you count it the same way. At first each note has its name under it; after a few rounds only the first note, Do, keeps its name. Sing the names out loud.' },
+    { name: 'Skips to Sol', type: 'staff', pool: [0, 2, 4, 5, 7], length: 5, starts: [0], ends: [0, 4, 7], maxLeap: 4, leapProb: 0.6, names: 'first', key: 'shown', items: ['skips'], introduce: [], summary: 'Do to Sol · skips · the first note named',
+      note: 'Now the melody can skip. From a line to the next line, or a space to the next space, skips one note: Do to Mi, Mi to Sol. Do, Mi and Sol are the home chord, so these skips sound settled. Hear the note you land on before you sing it. Only the first note, Do, is named.' },
+    { name: 'Low Sol to High Do', type: 'staff', pool: SIGHT_WIDE, length: 6, starts: [0, 4, 7], ends: [0, 4, 7], maxLeap: 7, leapProb: 0.3, names: 'first', key: 'shown', items: ['wide'], introduce: [], needs: [{ track: 'sing', level: 7 }], summary: 'Low Sol to High Do · the first note named',
+      note: 'Melodies now reach down to low Sol and up to High Do, further onto ledger lines when they leave the staff. Below Do the notes keep their names: Ti, La, Sol. A melody can start on Do, Mi or Sol, and the first note is named: find Do from the chords, step to the first note silently, then read on.' },
+    { name: 'Without the names', type: 'staff', pool: SIGHT_WIDE, length: 6, starts: [0, 4, 7, -5], ends: [0, 4, 7], maxLeap: 7, leapProb: 0.3, names: 'none', key: 'shown', items: ['noNames'], introduce: [], summary: 'Low Sol to High Do · no names',
+      note: 'No names now. The key is named above the staff, and Do is its own letter: in G major, Do is G. Find Do on the staff, count lines and spaces from it to the first note, and hear that note before you sing. A melody can also start on low Sol. Show the names is there if you get lost; it makes that round practice.' },
+    { name: 'Find Do from the signature', type: 'staff', pool: SIGHT_WIDE, length: 6, starts: [0, 4, 7, -5], ends: [0, 4, 7], maxLeap: 7, leapProb: 0.3, names: 'none', key: 'hidden', keyEach: true, items: ['signature'], introduce: [], summary: 'Find Do from the key signature',
+      note: 'The key is no longer named while you read, as in a score: find Do from the key signature. With no sharps or flats, Do is C. With sharps, the last sharp is Ti, and Do is the next line or space up. With flats, the last flat is Fa, and Do is the flat before it; with one flat, Do is F.' },
+    { name: 'The other clef', type: 'staff', clef: 'both', pool: SIGHT_WIDE, length: 6, starts: [0, 4, 7, -5], ends: [0, 4, 7], maxLeap: 7, leapProb: 0.3, names: 'none', key: 'hidden', keyEach: true, items: ['otherClef'], introduce: [], summary: 'Treble and bass clefs',
+      note: 'A score has a treble staff and a bass staff, and a composer reads both. Now about half the melodies come in the other clef. Its lines and spaces hold different letters, so find Do from the signature again. Sing where your voice sits: the names are what count, and the answer plays at your height.' },
+    { name: 'Fi and Te', type: 'staff', pool: [-5, -3, -1, 0, 2, 4, 5, 6, 7, 9, 10, 11, 12], chromatic: { 6: 7, 10: 9 }, approach: 2, want: [6, 10], length: 6, starts: [0, 4, 7], ends: [0, 4, 7], maxLeap: 7, leapProb: 0.3, names: 'none', key: 'hidden', keyEach: true, items: ['fiTe'], introduce: [], needs: [{ track: 'sing', level: 12 }], summary: 'Fi and Te, with their sharps, flats and naturals',
+      note: 'Now a note can carry its own sharp, flat or natural, which moves it a half step from where the key has it. Fa raised is Fi, and it leans up into Sol. Ti lowered is Te, and it leans down onto La. Whether the sign is a sharp, a flat or a natural depends on the key. A sign holds for the rest of the melody on that line or space; when Fa or Ti comes back there, it gets a sign of its own that puts the key’s note back: in G major, Ti after Te is F♯ again.' },
+    { name: 'Minor keys', type: 'staff', mode: 'minor', pool: [-5, -1, 0, 2, 3, 5, 7, 8, 10, 12], chromatic: { '-1': 0 }, approach: 3, length: 6, starts: [0, 3, 7], ends: [0, 3, 7], maxLeap: 7, leapProb: 0.3, names: 'none', key: 'fade', keyEach: true, items: ['minor'], introduce: [], needs: [{ track: 'sing', level: 13 }], summary: 'Minor keys · a raised Ti',
+      note: 'The four chords now set a minor key. Do is still home and still the key’s own letter: in C minor, Do is C. The signature is the one of the major key on Me, so the rule from the signature finds Me, and Do is a third below it. Me, Le and Te are already in the signature. Ti raised to lean into Do carries its own sharp or natural (a double sharp in G♯ minor). The key is named for your first rounds here, then you find Do from the signature again.' },
+  ];
+  const SIGHT_ITEM = { steps: 'steps from Do', skips: 'skips to Sol', wide: 'low Sol to High Do', noNames: 'without the names', signature: 'Do from the signature', otherClef: 'the other clef', fiTe: 'Fi and Te', minor: 'minor keys' };
+  // the clef each singing range reads, and the other one; a middle voice reads the treble clef with
+  // an 8 under it, as tenor parts are written, so its notes sit on the staff
+  const SIGHT_CLEF = { own: { low: 'bass', mid: 'treble8', high: 'treble' }, other: { low: 'treble', mid: 'bass', high: 'bass' } };
+  // A melody on its staff, as sounding pitches (treble8 draws them an octave up): in the voice's own
+  // clef where the voice sings it; in the other clef where that clef's voice would. Each note sits on
+  // the letter its degree gives, counted from Do's letter, so a note is always where reading from Do
+  // finds it: the raised Ti of G♯ minor is F𝄪, not G♮ on Do's own line.
+  function sightStaff(mel, tonic, voice, other, mode = 'major') {
+    const clef = SIGHT_CLEF[other ? 'other' : 'own'][voice] || 'treble8';
+    const v = other ? (clef === 'bass' ? 'low' : 'high') : voice;
+    const b = rangeBase(voiceTonic(tonic, v), mel, v);
+    const L0 = 'CDEFGAB'.indexOf(TL.keyName(tonic, mode)[0]);
+    return { clef, notes: mel.map((s) => ({ midi: b + s, dur: 1, letter: (L0 + Number(TL.degBySemi(s).id.slice(-1)) - 1) % 7 })) };
+  }
+  // a melody for a level; one meant to show Fi or Te is drawn again until it does
+  function sightMelody(lv, vt, voice) {
+    const opts = { pool: lv.pool, length: lv.length, starts: lv.starts, ends: lv.ends, maxLeap: lv.maxLeap, leapProb: lv.leapProb, chromatic: lv.chromatic || {}, approach: lv.approach ?? Infinity };
+    let mel = melodyFor(opts, vt, voice);
+    if (!lv.want) return mel;
+    // one of the notes taught, picked for this question, so each gets its share; either will do if that one does not come
+    const target = TL.pick(lv.want);
+    for (let k = 0; k < 100 && !mel.includes(target); k++) mel = melodyFor(opts, vt, voice);
+    for (let k = 0; k < 40 && !mel.some((x) => lv.want.includes(x)); k++) mel = melodyFor(opts, vt, voice);
+    return mel;
+  }
+  const SIGHT = {
+    prompt: 'When the chords stop, sing the melody on the staff.',
+    all: 'Each note’s name is under it. Sing the names out loud as you read. Any height counts.',
+    firstDo: (nm) => `The first note is ${nm}. Read on from it: the next line or space up or down is the next note of the scale. Any height counts.`,
+    firstOther: (nm) => `The first note is ${nm}. Find Do from the chords, step to ${nm} silently, then read on from it. Any height counts.`,
+    keyShown: 'Find Do on the staff from the key’s name, then count lines and spaces from Do to the first note. Step to it silently, or hum Do for a second or two, take a breath, then sing. Any height counts.',
+    keyHidden: 'Find Do from the signature, then count lines and spaces from Do to the first note. Step to it silently, or hum Do for a second or two, take a breath, then sing. Any height counts.',
+    keyHiddenMinor: 'Read the signature as a major key: the Do it gives is your Me, and your Do is a third below it. Then count to the first note, step to it silently, and sing. Any height counts.',
+    eight: ' The 8 under the clef means the notes sound an octave lower than written.',
+    otherBass: ' Bass clef this time: sing it where your voice sits.',
+    otherTreble: ' Treble clef this time: sing it where your voice sits.',
+    missTip: 'Find Do on the staff first, then read each note from the one before: the next line or space is a step; line to line, or space to space, is a skip.',
+    missLabel: 'Hear it while you follow the notes',
+    fixed: ' Key changes are set to Stay in one key, so Do stays in one place. To read in every key, change Key changes in Settings.',
+    each: ' The key changes every question, and its name shows once you have sung.',
+  };
+  const CLEF_CARD = {
+    bass: { title: 'Bass clef', text: 'Your singing range is set low, so melodies are written in the bass clef, the lower staff of a piano score. Its two dots sit either side of the F line. The notes are written where you sing them. Change your singing range below and the clef changes with it.' },
+    treble8: { title: 'Treble clef with an 8', text: 'Your singing range is set to the middle, so melodies are written in the treble clef with a small 8 under it, the way tenor parts are written. The 8 means the notes sound an octave lower than written: where you sing them. Change your singing range below and the clef changes with it.' },
+    treble: { title: 'Treble clef', text: 'Your singing range is set high, so melodies are written in the treble clef, the upper staff of a piano score. Its curl wraps round the G line. The notes are written where you sing them. Change your singing range below and the clef changes with it.' },
+  };
+  const OTHER_CARD = {
+    low: { title: 'Treble clef', text: 'The treble clef, the upper staff of a piano score: its curl wraps round the G line. Its notes sit about an octave above your voice. Sing them an octave down, where your voice sits: the same names.' },
+    mid: { title: 'Bass clef', text: 'The bass clef, the lower staff of a piano score: its two dots sit either side of the F line. Its notes may sit lower than your voice: sing them where they suit you, with the same names.' },
+    high: { title: 'Bass clef', text: 'The bass clef, the lower staff of a piano score: its two dots sit either side of the F line. Its notes sit about an octave below your voice. Sing them an octave up: the same names.' },
+  };
+  const sight = {
+    id: 'sight',
+    name: 'Sight-Singing',
+    short: 'Sight',
+    hue: 320,
+    blurb: 'Read a melody on a staff in its key and sing it on the names: hearing written music in your head.',
+    why: 'A composer reads a score by hearing it. Sight-singing turns the page into sound without an instrument, the way dictation turns sound into the page.',
+    task: 'You hear four chords, then read a melody on a staff and sing it on the names. Then the answer plays, and the app (with the microphone) or you check the notes. How long you hold each note is not checked.',
+    introFooter: 'Play each example and sing along on the names, following the staff, before you start.',
+    levels: SIGHT_LEVELS,
+    picksItem: true,
+    usesKey: true,
+    selfGraded: true,
+    voiceLabels: VOICE_LABELS,
+    modeOf: (L) => SIGHT_LEVELS[L].mode || 'major',
+    itemLabel: (id) => SIGHT_ITEM[id] || id,
+    intro(L, { tonic, voice = 'mid', keyMode = 'rotate', labels = 'both', mic = 'none' }) {
+      const lv = SIGHT_LEVELS[L];
+      const mode = lv.mode || 'major';
+      const kn = TL.keyName(tonic, mode), letter = kn.split(' ')[0];
+      const t1 = TL.cadenceLength() + GAP;
+      const own = SIGHT_CLEF.own[voice] || 'treble8';
+      // a card with a staff, and the same notes played after the chords at the voice's height
+      const card = (id, title, sub, text, semis, o = {}) => {
+        const t = o.tonic ?? tonic, md = o.mode || mode;
+        const ids = semis.map((x) => TL.degBySemi(x).id);
+        const base = rangeBase(voiceTonic(t, voice), semis, voice);
+        const st = sightStaff(semis, t, voice, !!o.other, md);
+        return {
+          id, title, sub, text, sing: o.sing || 'Sing along on the names, following the staff.',
+          staff: { key: { tonic: t, mode: md }, clef: st.clef, notes: st.notes, ids },
+          demos: [{ label: o.label || 'Hear it after the chords', events: [...TL.cadenceEvents(t, md), ...seqEvents(semis.map((x) => base + x), t1, 0.55, 1.0, (i) => ({ timbre: 'organ', deg: ids[i] }))] }],
+        };
+      };
+      const SCALE = [0, 2, 4, 5, 7, 5, 4, 2, 0];
+      const check = mic === 'on' ? {
+        id: 'check', title: 'The app listens', sub: 'microphone',
+        text: 'When the chords stop, sing the melody on its names, then stop. The app checks the notes by name, in order, at any height: a low voice and a high one sing the same melody. It does not check how long you hold each note: every note here is a quarter note, so sing at an easy, even pace. Then the answer plays while the notes light up, and the notes it heard wrong turn red.',
+      } : {
+        id: 'check', title: 'Check yourself', sub: mic === 'ask' ? 'or the microphone' : 'by ear',
+        text: (mic === 'ask' ? 'You check yourself, unless you let the app listen through your microphone; it asks when the singing starts. ' : 'You check yourself. ')
+          + 'Sing first, then press “I sang it: play the answer” and sing along while the notes light up. Matched: every note right. Close: one note off, or slid. Missed: two or more off. Any height counts, and how long you hold each note does not.',
+      };
+      Object.assign(check, { sing: 'Show the names makes a round practice: it does not count toward the next level. Play Do and Replay the chords are free.', demos: [] });
+      let cards = [];
+      if (L === 0) cards = [
+        card('do', 'Do on the staff', kn, `The key is named above the staff, and Do is its own letter: in ${kn}, Do is ${letter}. The sharps or flats after the clef belong to the key, so these notes need none of their own. From Do, each line or space up is the next note of the scale: Re, Mi, Fa, Sol. A note below or above the staff sits on a short ledger line, and you count it the same way.`, SCALE, { label: 'The chords, then Do up to Sol and back', sing: 'Sing along on the names, then once more looking only at the notes.' }),
+        card('clef', CLEF_CARD[own].title, 'your singing range', CLEF_CARD[own].text, [0], { label: 'Do, where you sing it' }),
+        check,
+      ];
+      else if (L === 1) cards = [card('skips', 'Line to line', 'skips', 'Do, Mi and Sol sit on three lines in a row, or in three spaces in a row. From a line to the next line, or a space to the next space, skips one note: Do to Mi, Mi to Sol. Hear the note you land on before you sing it.', [0, 4, 7, 4, 0])];
+      else if (L === 2) cards = [card('wide', 'Below Do and above', kn, 'Below Do the notes keep their names: Ti, La, Sol, one line or space at a time. High Do is seven lines and spaces above Do: if Do is on a line, High Do is in a space. Notes off the staff sit on short ledger lines.', SIGHT_WIDE)];
+      else if (L === 3) cards = [card('find', 'Find the first note', kn, `In ${kn}, Do is ${letter}. Mi is a skip above Do (the next line, or the next space), Sol a skip above Mi, and low Sol three lines and spaces below Do. Find the first note from Do like this, step to it silently or hum Do for a second or two, take a breath, then sing.`, [0, 4, 7, 0, -5])];
+      else if (L === 4) cards = [
+        card('none', 'No sharps or flats', 'C major', 'Do is C.', [0, 2, 4, 2, 0], { tonic: 60, mode: 'major' }),
+        card('sharps', 'Sharps', 'D major', 'The last sharp is Ti. Do is the next line or space up: in D major the last sharp is C♯, so Do is D.', [0, 2, 4, 2, 0], { tonic: 62, mode: 'major' }),
+        card('flats', 'Flats', 'E♭ major', 'The last flat is Fa. Do is the flat before it: in E♭ major the flats are B♭, E♭ and A♭, so A♭ is Fa and Do is E♭. With one flat, Do is F.', [0, 2, 4, 2, 0], { tonic: 63, mode: 'major' }),
+      ];
+      else if (L === 5) cards = [card('other', OTHER_CARD[voice] ? OTHER_CARD[voice].title : OTHER_CARD.mid.title, 'about half the melodies', (OTHER_CARD[voice] || OTHER_CARD.mid).text, SCALE, { other: true })];
+      else if (L === 6) cards = [
+        card('#4', nameOf('#4', labels), 'Fa raised', 'Fa raised a half step. On the staff it is Fa’s line or space with a sharp, or a natural where the signature has a flat. It leans up into Sol.', [5, 6, 7]),
+        card('b7', nameOf('b7', labels), 'Ti lowered', 'Ti lowered a half step. On the staff it is Ti’s line or space with a flat, or a natural where the signature has a sharp. It leans down onto La.', [12, 10, 9]),
+      ];
+      else if (L === 7) cards = [
+        card('minor', 'Do in a minor key', kn, `Do is still home and still the key’s own letter: in ${kn}, Do is ${letter}. The signature is the one of the major key on Me. Read it as a major key: the Do it gives is your Me, and your Do is a third below, on the line below if Me is on a line, in the space below if Me is in a space. Me, Le and Te are already in the signature.`, [0, 2, 3, 5, 7, 5, 3, 2, 0]),
+        card('ti', 'Raised Ti', 'leans into Do', 'In minor, Ti is often raised a half step so it leans into Do. It carries its own sharp or natural (a double sharp in G♯ minor), because the signature does not have it.', [3, 2, -1, 0]),
+      ];
+      return { title: lv.name, note: lv.note + (L === 4 ? (keyMode === 'fixed' ? SIGHT.fixed : SIGHT.each) : ''), rangePicker: true, cards, demos: [] };
+    },
+    generate(L, { tonic, item, voice = 'mid', fade = false, labels }) {
+      const lv = SIGHT_LEVELS[L];
+      const mode = lv.mode || 'major';
+      const vt = voiceTonic(tonic, voice);
+      const ctx = TL.cadenceEvents(tonic, mode);
+      const t1 = TL.cadenceLength() + GAP;
+      const mel = sightMelody(lv, vt, voice);
+      const base = rangeBase(vt, mel, voice);
+      const ids = mel.map((x) => TL.degBySemi(x).id);
+      const other = lv.clef === 'both' && Math.random() < 0.5;
+      const st = sightStaff(mel, tonic, voice, other, mode);
+      const names = lv.names === 'fade' ? (fade ? 'first' : 'all') : lv.names;
+      const keyHidden = lv.key === 'hidden' || (lv.key === 'fade' && fade);
+      // each note of the line carries its place on the staff, so the staff lights up as it plays
+      const line = (start) => seqEvents(mel.map((x) => base + x), start, 0.55, 1.0, (i) => ({ timbre: 'organ', deg: ids[i], staffIdx: i }));
+      const model = [...ctx, ...line(t1)];
+      const nm = nameOf(ids[0], labels);
+      let subline = names === 'all' ? SIGHT.all
+        : names === 'first' ? (ids[0] === '1' ? SIGHT.firstDo(nm) : SIGHT.firstOther(nm))
+          : !keyHidden ? SIGHT.keyShown : mode === 'minor' ? SIGHT.keyHiddenMinor : SIGHT.keyHidden;
+      if (st.clef === 'treble8' && L < 2) subline += SIGHT.eight;
+      if (other) subline += st.clef === 'bass' ? SIGHT.otherBass : SIGHT.otherTreble;
+      return {
+        kind: 'sing', tonic, mode,
+        pattern: ids, patternSemis: mel,
+        staff: { key: { tonic, mode }, clef: st.clef, notes: st.notes, names, other },
+        keyHidden, prompt: SIGHT.prompt, subline, practice: false, model,
+        missTip: SIGHT.missTip, missLabel: SIGHT.missLabel,
+        stats: [item],
+        audio: { main: ctx, parts: { context: ctx, do: [noteEv(0, base, 2.0, { timbre: 'organ', deg: '1' })], model }, reveal: line(0) },
+        replays: [{ part: 'main', label: 'Replay the chords', key: 'Space' }, { part: 'do', label: 'Play Do' }],
+      };
+    },
+  };
+
+  // ======================================================================
+  const TRACKS = [degrees, intervals, chords, harmony, melody, rhythm, sing, sight];
   const TRACK = Object.fromEntries(TRACKS.map((t) => [t.id, t]));
   // Prerequisites keep a beginner from facing dictation and harmony before the ear has a frame.
   const PREREQ = {
     melody: [{ track: 'degrees', level: 2 }],
     harmony: [{ track: 'degrees', level: 3 }, { track: 'chords', level: 1 }],
+    sight: [{ track: 'sing', level: 4 }], // Sing a pattern mastered: reading a pattern on its names comes first
   };
   // Every level whose introduction text or demos were rewritten in version 2.
   [DEG_LEVELS, IV_LEVELS, CH_LEVELS, HA_LEVELS, RH_LEVELS, SI_LEVELS].forEach((levels) => levels.forEach((lv) => (lv.introV = lv.introV || 2)));
   ME_LEVELS[0].introV = 2;
-  TL.Curriculum = { TRACKS, TRACK, PREREQ, voiceTonic, ALL7, ALL12, VOICE, VOICE_LABELS };
+  TL.Curriculum = { TRACKS, TRACK, PREREQ, voiceTonic, ALL7, ALL12, VOICE, VOICE_LABELS, SIGHT_CLEF };
 })(typeof window !== 'undefined' ? window : globalThis);

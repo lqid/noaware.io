@@ -7,7 +7,7 @@
   const LS_KEY = 'tone-ladder-v1';
   // The saved-data format. A copy of the app that finds a higher number was written by newer code:
   // it leaves that progress alone (no cleaning, no saving) and asks for a reload.
-  const FORMAT = 6; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap
+  const FORMAT = 7; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap; 6: notation, input staff; 7: the Sight-Singing track
   // Settings that belong to one device (latency calibration, loudness, tempo) and never travel with progress.
   const DEVICE_KEYS = ['tapOffsetMs', 'volume', 'speed'];
   const WINDOW = 20;           // recent answers that decide mastery

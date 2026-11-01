@@ -93,5 +93,20 @@ const arriving = S.parseBackup(JSON.stringify({ settings: { tapOffsetMs: 0, volu
 S.keepDevice(arriving);
 check(arriving.settings.tapOffsetMs === 95 && arriving.settings.volume === 0.4, 'device settings come from this device\'s saved copy');
 
+// 8. Sight-Singing: locked until Sing a pattern is mastered; a save from before it loads with the track at its start;
+//    a level whose notes Sing has not taught yet waits for that Sing level
+S.state = S.parseBackup(JSON.stringify({ settings: {}, tracks: {} }));
+check(!S.isUnlocked('sight'), 'Sight-Singing is locked on a fresh store');
+S.track('sing').maxLevel = 4;
+check(S.isUnlocked('sight'), 'Sight-Singing opens at Sing level 5');
+S.state = S.parseBackup(JSON.stringify({ v: 6, settings: {}, tracks: { sing: { level: 4, maxLevel: 4 } } }));
+check(S.state.v === S.FORMAT && S.FORMAT >= 7 && S.track('sight').level === 0 && S.isUnlocked('sight'), 'a format-6 save loads with Sight-Singing at level 1, open');
+S.state = S.parseBackup(JSON.stringify({ settings: {}, tracks: { sing: { level: 5, maxLevel: 6 }, sight: { level: 1, maxLevel: 1 } } }));
+for (let d = 0; d < 2; d++) { for (let i = 0; i < 10; i++) answer('sight', 1); nextDay(); }
+check(S.track('sight').level === 1, 'Sight level 2 does not open while Sing has not reached Longer patterns');
+S.track('sing').maxLevel = 7;
+let up = null; for (let i = 0; i < 2 && up === null; i++) up = answer('sight', 1);
+check(S.track('sight').level === 2, 'Sight level 3 opens once Sing reaches level 8');
+
 console.log(bad ? `${bad} problems` : 'progress checks OK');
 process.exitCode = bad ? 1 : 0;

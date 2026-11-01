@@ -898,7 +898,8 @@
 
   // ---------- melody generator ----------
   // pool: allowed semitone offsets from Do (sorted). chromatic: {semi: resolveTo}.
-  function genMelody({ pool, length, starts = [0], ends = [0], maxLeap = 4, leapProb = 0.25, chromatic = {}, tries = 200 }) {
+  // approach: the widest step into a chromatic note (Infinity: any leap the melody allows)
+  function genMelody({ pool, length, starts = [0], ends = [0], maxLeap = 4, leapProb = 0.25, chromatic = {}, approach = Infinity, tries = 200 }) {
     const P = pool.slice().sort((a, b) => a - b);
     const diatonic = P.filter((s) => !(s in chromatic));
     for (let attempt = 0; attempt < tries; attempt++) {
@@ -915,6 +916,7 @@
           if (ad === 0 || ad > maxLeap) continue;
           const isChrom = s in chromatic;
           if (isChrom && k === length - 1) continue; // chromatic notes need room to resolve
+          if (isChrom && ad > approach) continue; // and are reached by step where the level says so
           if (isChrom && !P.includes(chromatic[s])) continue;
           const idxCur = diatonic.indexOf(cur), idxS = diatonic.indexOf(s);
           const isStep = isChrom ? ad <= 2 : Math.abs(idxS - idxCur) === 1;

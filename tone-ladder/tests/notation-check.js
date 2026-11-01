@@ -226,6 +226,16 @@ for (const [quality, ct] of Object.entries(TL.CHORD_TYPES)) for (let inv = 0; in
   }
 }
 console.log(`${voicings} chord voicings drawn, ${doubles} double accidentals among the chords`);
+// the treble clef with an 8: drawn exactly as the treble clef an octave up, with its 8, and never chosen by auto
+const posOf = (svg) => [...svg.matchAll(/<g class="(?:head|sig)" transform="translate\(([-\d.]+) ([-\d.]+)\)">/g)].map((m) => m[2]).join();
+for (const mode of ['major', 'minor']) for (let t = 0; t < 12; t++) {
+  const ns = [0, 2, 4, 5, 7, 9, 11, 12].map((x) => q(48 + t + x));
+  const a = render('treble8 ' + t + mode, { key: { tonic: t, mode }, clef: 'treble8', notes: ns }), b = render('treble ' + t + mode, { key: { tonic: t, mode }, clef: 'treble', notes: ns.map((n) => q(n.midi + 12)) });
+  if (posOf(a) !== posOf(b)) fail(`treble8 in ${t} ${mode} is not treble an octave up`);
+  if (count(a, 'clef8') !== 1 || count(b, 'clef8') !== 0) fail(`treble8 in ${t} ${mode}: its 8 is missing, or the treble clef has one`);
+}
+for (const [clef, midi, n] of [['treble8', 48, 1], ['treble8', 45, 2], ['treble8', 50, 0], ['treble8', 72, 2]]) if (ledgers(clef, midi) !== n) fail(`${clef} ${midi}: ${ledgers(clef, midi)} ledger lines, expected ${n}`);
+for (const midi of [40, 48, 55, 60, 67, 76]) if (count(render('auto ' + midi, { key: C, notes: [q(midi), q(midi + 2)] }), 'clef8')) fail('auto chose treble8');
 console.log(`${staves} staves and ${rhythms} rhythms rendered`);
 console.log(bad ? `${bad} problems` : 'notation OK');
 process.exitCode = bad ? 1 : 0;

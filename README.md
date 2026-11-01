@@ -138,6 +138,18 @@ keyboard answers the same questions by playing the note (Web MIDI, so Chrome and
 browser asks once, and the choice is kept per device). The claude.ai copy leaves MIDI out, as it
 does the microphone.
 
+Sight-Singing (`sight` in `js/curriculum.js`) is the eighth track: a melody written on a staff in its
+key, sung on its names after the four chords, and graded by the same melody listener as Sing (or
+by the learner). It opens once Sing a pattern is mastered, and its levels take help away one
+piece at a time: the names under the notes, then the first note named, then no names, then no
+key name (Do from the signature), then the other clef, Fi and Te, and minor; each level that
+needs notes Sing has not taught yet waits for that Sing level. Every note is a quarter note,
+because the listener grades the notes and not how long each is held, and the copy says so. A
+low singing range reads the bass clef, a middle one the treble clef with an 8 under it (written
+an octave up, as tenor parts are), a high one the treble clef; what is written is what plays and
+what is graded, and any octave counts. After singing, the notes the app heard wrong turn red on
+the staff, once the learner has made their own call. Adding the track bumped the save format to 7.
+
 Answers can be written on a staff (`js/notation.js`: a renderer with its own clef and accidental
 paths, no font; notes spelled by scale degree from the key the app names, minor and the modes
 from the same Do). After an answer the feedback shows what sounded on a staff in the key with the
