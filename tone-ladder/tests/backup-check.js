@@ -39,7 +39,7 @@ check(back.settings.input === 'piano' && back.settings.clap === false, 'input an
 // a save from before format 3 loads with the defaults for the new fields
 const older = JSON.parse(text); older.state.v = 2; delete older.state.guess; delete older.state.settings.guessFirst; delete older.state.settings.singBack; delete older.state.settings.input; delete older.state.settings.clap; for (const it of Object.values(older.state.items)) delete it.cl;
 const up = S.parseBackup(JSON.stringify(older));
-check(up.guess && up.guess.n === 0 && up.settings.guessFirst === true && up.settings.singBack === true && up.settings.input === 'ladder' && up.settings.clap === true && !Object.values(up.items).some((it) => it.cl), 'an older save did not get the format-3 to format-5 defaults');
+check(up.guess && up.guess.n === 0 && up.settings.guessFirst === true && up.settings.singBack === true && up.settings.input === 'ladder' && up.settings.clap === true && up.settings.notation === 'answers' && !Object.values(up.items).some((it) => it.cl), 'an older save did not get the format-3 to format-6 defaults');
 // 2. junk and partial input
 for (const junk of ['', 'hello', '[]', '{"tracks":{}}', 'null', '{"state":5}']) { let threw = false; try { S.parseBackup(junk); } catch (e) { threw = /not a Tone Ladder backup/.test(e.message); } check(threw, 'accepted junk ' + junk); }
 // 3. markup payloads are dropped or replaced by safe defaults

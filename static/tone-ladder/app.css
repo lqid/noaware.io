@@ -517,3 +517,43 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 @media (pointer: coarse) {
   .prefs textarea, .prow select, .prow input[type="number"], .field select, .field input[type="number"], .icard input { font-size: 16px; }
 }
+
+/* the answer on a staff, and the staff as a control */
+.score { margin: 10px 0 4px; color: var(--ink); max-width: 560px; }
+.score svg { display: block; }
+.notation .hl { color: var(--bad); }
+.staff-in { position: relative; max-width: 560px; color: var(--ink); user-select: none; }
+.staff-svg { position: relative; }
+.staff-svg svg { display: block; width: 100%; height: auto; }
+.staff-hit { position: absolute; top: 0; bottom: 0; display: flex; }
+.spos { flex: 1; background: transparent; border: 0; border-radius: 10px; cursor: pointer; padding: 0; margin: 0; transition: background .08s; }
+.spos:not(.off):hover, .spos.lit { background: var(--accent-soft); }
+.spos.off { cursor: default; }
+.spos.is-correct { outline: 3px solid var(--good); outline-offset: -3px; }
+.spos.is-wrong { outline: 3px solid var(--bad); outline-offset: -3px; }
+.spos.is-wrong-twin { box-shadow: inset 0 -5px 0 var(--bad); }
+.spos.dim:not(.is-correct):not(.is-wrong) { opacity: .5; }
+.staff-in .row { position: relative; margin-top: 4px; }
+.staff-in .btn.on { background: var(--accent-soft); }
+
+/* your music */
+.music h2 { margin-top: 26px; }
+.music .overview { position: relative; height: 76px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; margin: 10px 0 6px; color: var(--ink-2); }
+.music .overview canvas { width: 100%; height: 100%; display: block; }
+.music .overview .shade { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .18; pointer-events: none; display: none; }
+.music .overview .head { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; left: 0; }
+.music .steps { padding-left: 22px; max-width: 72ch; }
+.music .steps li { margin: 12px 0; }
+.music .seg { display: flex; width: fit-content; margin: 8px 0; }
+.chip { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
+.chip:hover { background: var(--surface-2); }
+.chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip.chrom { opacity: .7; }
+.music .mark-edit { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 10px 0; }
+.music .mark-edit .grp { margin: 8px 0; }
+.music .marks { list-style: none; padding: 0; margin: 10px 0; max-width: 62ch; }
+.music .marks li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.music .marks li b { font-size: 18px; min-width: 2.4em; }
+.music .marks li .note { flex: 1; min-width: 80px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 14px; }
+.music .field input[type="range"] { width: 140px; vertical-align: middle; }
+.music #muOther { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 14px; width: 12em; }

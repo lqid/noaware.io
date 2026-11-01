@@ -2,12 +2,13 @@
 // Runs every check in this folder against the app and prints one line per script.
 //   node tone-ladder/tests/run.js [path/to/static/tone-ladder] [--verbose]
 const { spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
 const dir = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(__dirname, '..', '..', 'static', 'tone-ladder'));
-const SCRIPTS = ['progress-check.js', 'generators-check.js', 'backup-check.js', 'coverage-check.js', 'sing-check.js', 'sw-check.js'];
+const SCRIPTS = fs.readdirSync(__dirname).filter((f) => /-check\.js$/.test(f)).sort(); // every check in this folder
 
 let failed = 0;
 for (const script of SCRIPTS) {

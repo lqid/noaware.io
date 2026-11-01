@@ -7,7 +7,7 @@
   const LS_KEY = 'tone-ladder-v1';
   // The saved-data format. A copy of the app that finds a higher number was written by newer code:
   // it leaves that progress alone (no cleaning, no saving) and asks for a reload.
-  const FORMAT = 5; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap
+  const FORMAT = 6; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap
   // Settings that belong to one device (latency calibration, loudness, tempo) and never travel with progress.
   const DEVICE_KEYS = ['tapOffsetMs', 'volume', 'speed'];
   const WINDOW = 20;           // recent answers that decide mastery
@@ -15,7 +15,7 @@
 
   const DEFAULT_SETTINGS = {
     labels: 'both',         // both | solfege | numbers
-    timbre: 'piano',        // piano | epiano | strings | organ | pure | vary
+    timbre: 'piano',        // piano | epiano | strings | organ | pure | vary | rpiano | rstrings (recorded, where the copy has them)
     keyMode: 'rotate',      // rotate | each | fixed
     fixedKey: 0,
     context: 'cadence',     // cadence | drone
@@ -29,7 +29,8 @@
     tapOffsetMs: 0,
     guessFirst: true,       // with the microphone: now and then, grade yourself before the app shows its grade
     singBack: true,         // with the microphone: sing each dictation melody back before naming its notes
-    input: 'ladder',        // how notes are answered: ladder | piano
+    input: 'ladder',        // how notes are answered: ladder | piano | staff
+    notation: 'answers',    // the staff in the feedback: off | answers
     clap: true,             // with the microphone: rhythms can be clapped as well as tapped
     hints: {},
     unlockAll: false,
@@ -61,8 +62,8 @@
   // Saved progress comes back from localStorage, the claude.ai account and pasted backups, so it is
   // rebuilt field by field: known keys only, numbers that are finite, levels this curriculum has.
   const ENUMS = {
-    labels: ['both', 'solfege', 'numbers'], timbre: ['piano', 'epiano', 'strings', 'organ', 'pure', 'vary'],
-    keyMode: ['rotate', 'each', 'fixed'], context: ['cadence', 'drone'], voice: ['low', 'mid', 'high'], input: ['ladder', 'piano'],
+    labels: ['both', 'solfege', 'numbers'], timbre: ['piano', 'epiano', 'strings', 'organ', 'pure', 'vary', 'rpiano', 'rstrings'], notation: ['off', 'answers'],
+    keyMode: ['rotate', 'each', 'fixed'], context: ['cadence', 'drone'], voice: ['low', 'mid', 'high'], input: ['ladder', 'piano', 'staff'],
   };
   const RANGES = { fixedKey: [0, 11], speed: [0.5, 1.5], volume: [0, 1], dailyGoal: [5, 200], tapOffsetMs: [-400, 400] };
   const ITEM_FIELDS = ['n', 'c', 'e', 'rt', 'last', 'box', 'due', 'bd', 'p'];
@@ -110,6 +111,9 @@
     return out;
   }
   const isNewer = (s) => isObj(s) && num(s.v, 1) > FORMAT;
+  const LINKS = (() => { try { new CompressionStream('deflate-raw'); new DecompressionStream('deflate-raw'); return true; } catch (e) { return false; } })();
+  const b64url = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const unb64url = (s) => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4)); const out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out; };
   function migrate(s) {
     s = isObj(s) ? s : {};
     const out = freshState();
@@ -524,6 +528,27 @@
     // A backup as text, to move progress between browsers, devices, or noaware.io and claude.ai.
     exportText() {
       return JSON.stringify({ app: 'tone-ladder', exported: new Date().toISOString(), state: this.state });
+    },
+    // The same backup as a link: deflated and base64url-encoded in the fragment of the app's URL,
+    // so progress can be sent to another device and opened there. A fragment never reaches a
+    // server. Links need the browser's compression streams (Safari 16.4, Chrome 103, Firefox 113
+    // and later); a copy without them can still paste.
+    get canLink() { return LINKS; },
+    async exportLink(base) {
+      if (!LINKS) throw new Error('This browser cannot make a link. Copy my progress works.');
+      const cs = new CompressionStream('deflate-raw');
+      const w = cs.writable.getWriter(); w.write(new TextEncoder().encode(this.exportText())).catch(() => {}); w.close().catch(() => {});
+      return base + '#p=' + b64url(new Uint8Array(await new Response(cs.readable).arrayBuffer()));
+    },
+    async textFromLink(hash) {
+      const m = /^#?p=([A-Za-z0-9_-]+)$/.exec(String(hash || '').trim());
+      if (!m) throw new Error('That is not a Tone Ladder link.');
+      if (!LINKS) throw new Error('This browser cannot read a link. Paste the progress instead.');
+      try {
+        const ds = new DecompressionStream('deflate-raw');
+        const w = ds.writable.getWriter(); w.write(unb64url(m[1])).catch(() => {}); w.close().catch(() => {});
+        return await new Response(ds.readable).text();
+      } catch (e) { throw new Error('That link was cut short. Copy the whole of it, or paste the progress instead.'); }
     },
     parseBackup(text) {
       let o;

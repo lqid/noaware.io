@@ -43,10 +43,22 @@
   }
   function applyAudio() {
     const s = S.settings;
-    A.configure({ volume: s.volume, timbre: s.timbre === 'vary' ? 'piano' : s.timbre, speed: s.speed });
+    A.configure({ volume: s.volume, timbre: s.timbre === 'vary' ? 'piano' : s.timbre, speed: s.speed, samples: !micCopy() });
+    if (s.timbre === 'vary' && !micCopy()) Object.keys(A.SAMPLED).forEach((n) => A.loadSamples(n)); // the pool wants them all
+  }
+  // a set arrived, or did not: the selects say so, unless the learner is typing or pasting there
+  A.onSamples = () => { const ae = document.activeElement; if ((app.view === 'prefs' || app.view === 'explore') && !MOVE.pasting && !(ae && ae.matches && ae.matches('input, textarea'))) render(); };
+  // The instruments to offer: the synthesized ones, the recorded sets this copy has, and the
+  // chosen one even when its set is not here, worded so the select tells the truth.
+  function timbreOptions(chosen) {
+    const opts = Object.entries(A.TIMBRES).map(([k, v]) => [k, v + (A.SAMPLED[k] && A.sampled(k) === 'loading' ? ' (loading…)' : '')]);
+    const rec = A.SAMPLED[chosen];
+    if (rec && !A.TIMBRES[chosen]) { const st = A.sampled(chosen); opts.push([chosen, rec.label + (st === 'loading' || st === 'unknown' ? ' (loading…)' : st === 'failed' ? ' (could not be loaded)' : ' (not on this copy)')]); }
+    return opts;
   }
   const VARY = ['piano', 'epiano', 'strings', 'organ'];
-  const pickTimbre = () => (S.settings.timbre === 'vary' ? TL.pick(VARY) : S.settings.timbre);
+  const varyPool = () => [...VARY, ...Object.keys(A.SAMPLED).filter((n) => A.sampled(n) === 'ready')];
+  const pickTimbre = () => (S.settings.timbre === 'vary' ? TL.pick(varyPool()) : S.settings.timbre);
   function safeAudio() {
     try { A.ensure(); applyAudio(); return true; } catch (e) { toast(e.message || 'Audio is not available in this browser.'); return false; }
   }
@@ -572,7 +584,7 @@
     R.replays = 0;
     R.levelUpNow = null;
     R.singMissed = false;
-    R.rPhase = null; R.rResult = null; R.rScored = false; R.taps = [];
+    R.rPhase = null; R.rResult = null; R.rScored = false; R.taps = []; R.staffAlt = false;
     if (micQuestion(q)) micListen(q); else if (A.micOn && !cl) micRelease();
     R.clap = q.kind === 'tap' && cl && A.micOn && !R.micSkip ? { qid: q.id, on: false, floor: 0, leak: 0, last: -1, n: 0 } : null;
     renderSession();
@@ -644,6 +656,7 @@
       if (key === 0 && s > 0 && $('.ladder .rung[data-semi="12"]')) key = 12;
       flash($(`.ladder .rung[data-semi="${key}"]`), ms);
       flash($(`.piano .pkey[data-semi="${s}"]`) || $(`.piano .pkey[data-semi="${TL.mod12(s)}"]`), ms); // the piano has the octave where it shows it
+      flash($(`.staff-in .spos[data-semi="${s}"]`) || $(`.staff-in .spos[data-semi="${TL.mod12(s)}"]`) || $(`.staff-in .spos[data-twin-semi="${TL.mod12(s)}"]`), ms);
     }
   }
 
@@ -877,6 +890,7 @@
     if (!q.options.some((o) => o.id === id)) return;
     A.wake();
     flash($(`.piano .pkey[data-semi="${semi}"]`) || $(`.piano .pkey[data-semi="${TL.mod12(semi)}"]`), 160);
+    flash($(`.staff-in .spos[data-semi="${semi}"]`) || $(`.staff-in .spos[data-semi="${TL.mod12(semi)}"]`) || $(`.staff-in .spos[data-twin-semi="${TL.mod12(semi)}"]`), 160);
     if (q.kind === 'sequence') seqPick(id); else if (q.kind === 'choice') answerChoice(id);
   }
 
@@ -1594,8 +1608,38 @@
     }
     return `<div class="piano" role="group" aria-label="Piano keys, named in the key">${keys.join('')}</div>`;
   }
-  // the ladder, or the piano when chosen and the question has a key
+  // The staff as a control: the mode's degrees on their lines and spaces, Do to High Do, with
+  // buttons over them. The altered twins (Fi for Fa, Te for Ti) come up on a toggle, only where
+  // the question offers them; the accidental is drawn, so the spelling is seen, not supplied.
+  function staffHTML(options, mode, act, state, tonic) {
+    const hints = keyHints(options, mode);
+    const ids = new Set(options.map((o) => o.id));
+    // each slot is a scale degree's column: its main note is the one the question offers (the
+    // scale note, or its chromatic twin when only that is asked), its twin the other
+    const slots = TL.MODE_SCALE[mode || 'major'].map((id) => {
+      const n = DEG[id].num.replace(/[♭♯]/g, '');
+      const main = ids.has(id) || !hints[n] ? id : hints[n], twin = hints['S' + n] && hints['S' + n] !== main ? hints['S' + n] : null;
+      return { main, twin };
+    });
+    const twins = slots.some((s) => s.twin);
+    // the feedback shows the set that holds the right answer; while answering, the toggle decides
+    const alt = state.correct ? slots.some((s) => s.twin === state.correct) : !!(R && R.staffAlt);
+    const positions = slots.map((s) => { const use = alt && s.twin ? s.twin : s.main, hid = alt && s.twin ? s.main : s.twin; return { id: use, semi: DEG[use].semi, high: false, hid }; });
+    positions.push({ id: '1', semi: 12, high: true });
+    const key = { tonic, mode: mode || 'major' };
+    const px = Math.min(520, Math.max(300, window.innerWidth - 32)); // the drawing scales to the screen, so its names stay readable
+    const svg = TL.Notation.staff({ key, clef: 'treble', grid: true, width: px, notes: positions.map((p) => ({ midi: tonic + p.semi, dur: 1 })), lyrics: positions.map((p) => degText(p.id).main) });
+    const box = TL.Notation.gridBox(key, px);
+    const cls = (id) => (state.correct === id ? ' is-correct' : '') + (state.wrong === id ? ' is-wrong' : '') + (state.dim ? ' dim' : '');
+    const btns = positions.map((p) => {
+      const on = ids.has(p.id), wrongTwin = state.wrong && p.hid === state.wrong; // your pick was this column's other note
+      return `<button class="spos${on ? '' : ' off'}${on ? cls(p.id) : ''}${wrongTwin ? ' is-wrong-twin' : ''}" data-act="${act}" data-id="${p.id}" data-semi="${p.semi}"${p.hid ? ` data-twin-semi="${DEG[p.hid].semi}"` : ''}${on ? '' : ' disabled'} aria-label="${esc((p.high ? 'High ' : '') + DEG[p.id].sol + ' ' + DEG[p.id].num)}"></button>`;
+    }).join('');
+    return `<div class="staff-in" role="group" aria-label="Notes on a staff, in the key"><div class="staff-svg">${svg}<div class="staff-hit" style="left:${(box.left * 100).toFixed(2)}%;right:${((1 - box.right) * 100).toFixed(2)}%">${btns}</div></div>${twins && !state.correct ? `<div class="row"><button class="btn sm ghost${alt ? ' on' : ''}" data-act="staffAlt" aria-pressed="${alt}">${alt ? 'Back to the scale' : 'Altered notes'}</button></div>` : ''}</div>`;
+  }
+  // the ladder, or the piano or the staff when chosen and the question has a key
   function notesHTML(q, act, state) {
+    if (q.tonic != null && S.settings.input === 'staff' && TL.Notation) return staffHTML(q.options, q.mode, act, state, q.tonic);
     return S.settings.input === 'piano' && q.tonic != null ? pianoHTML(q.options, q.mode, act, state, q.tonic) : ladderHTML(q.options, q.mode, act, state);
   }
   function choiceBodyHTML() {
@@ -1649,6 +1693,7 @@
       return `<div class="fb ${ok ? 'good' : 'bad'}">
         <p class="verdict">${ok ? 'Correct' : 'Not quite'}</p>
         ${answerLabelHTML(q, q.answer)}
+        ${scoreHTML(q)}
         ${q.explain ? `<p class="explain"><span class="lab">${esc(q.explainLabel || '')}</span>${esc(q.explain)}</p>` : ''}
         ${ok ? '' : `<p class="explain">You answered <strong>${esc(choiceName(q, R.chosen))}</strong>. Play both and compare.</p>`}
         <div class="row">
@@ -1668,6 +1713,7 @@
       <p class="verdict">${all ? 'All correct' : `${right} of ${R.results.length} right`}</p>
       ${R.mic && R.mic.state === 'heard' && singBack(q) ? `<div class="sing echo"><p class="eyebrow">Your echo</p>${micResultHTML(q, R.mic.result)}</div>` : ''}
       ${q.track === 'melody' ? contourSVG(q, R.input) : ''}
+      ${scoreHTML(q, R.results.map((r, i) => (r ? -1 : i + (q.given || []).length)).filter((i) => i >= 0))}
       ${q.explain ? `<p class="explain"><span class="lab">${esc(q.explainLabel || '')}</span>${esc(q.explain)}</p>` : ''}
       <div class="row">
         <button class="btn sm" data-act="hear" data-what="correct">Hear it again</button>
@@ -1725,6 +1771,39 @@
     const btn = $('[data-act="seqSubmit"]');
     if (btn) btn.disabled = !R.input.every(Boolean);
   }
+  // ---------- the answer on a staff ----------
+  // Drawn from the sounds the question played (its events carry the notes and their degrees), so
+  // the staff shows what sounded, in the key: a dictation's melody, a bass line under its
+  // numerals, the note of a degree question, the chord of a quality question. Names underneath.
+  function scoreHTML(q, missed) {
+    if (S.settings.notation === 'off' || !TL.Notation || !q || q.kind === 'tap') return '';
+    const P = (q.audio && q.audio.parts) || {};
+    let evs = P.asked || P.model || P.target || P.prog || (q.audio && q.audio.main) || [];
+    evs = evs.filter((e) => e.notes && e.notes.length && !e.perc && e.role !== 'context' && e.role !== 'resolution');
+    const slotted = evs.filter((e) => e.slot != null);
+    if (slotted.length) evs = slotted; // a progression: the chords that were asked about, not the key-setting ones
+    if (!evs.length) return '';
+    const tonic = q.tonic != null ? q.tonic : Math.min(...evs.flatMap((e) => e.notes)); // an interval has no key: its lower note stands for Do
+    const key = { tonic, mode: q.mode || 'major' };
+    const base = evs.reduce((m, e) => Math.min(m, e.dur || 0.5), Infinity) || 0.5; // the shortest value is a quarter
+    const snap = (v) => [0.5, 1, 1.5, 2, 3, 4].reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+    const harmony = q.track === 'harmony' && (Array.isArray(q.answer) || Array.isArray(q.seqLabels));
+    const notes = evs.map((e) => (harmony ? { midi: Math.min(...e.notes), dur: snap((e.dur || 0.5) / base) } : e.notes.length > 1 ? { midis: e.notes.slice(), dur: snap((e.dur || 0.5) / base) } : { midi: e.notes[0], dur: snap((e.dur || 0.5) / base) }));
+    let lyrics = harmony ? notes.map((n) => degText(TL.degBySemi(n.midi - tonic).id).main) : evs.map((e) => (e.deg && DEG[e.deg] ? degText(e.deg).main : ''));
+    if (!lyrics.some(Boolean) && notes.length === 1 && DEG[q.answer]) lyrics = [degText(q.answer).main]; // a degree question's one note
+    const chords = harmony ? (q.seqLabels || q.answer).map((t, i) => ({ at: i, text: String(t) })) : null;
+    // no key: a chord is spelled from its root by chord tone, an interval by its number
+    if (q.track === 'chords' && q.root != null && TL.CHORD_TYPES[q.answer]) notes.forEach((n) => { n.letters = TL.Notation.chordLetters(q.root, q.answer, n.midis || [n.midi]); });
+    if (q.track === 'intervals' && TL.IV[q.answer]) {
+      const all = notes.flatMap((n) => n.midis || [n.midi]), Ls = TL.Notation.intervalLetters(q.answer, all);
+      const letterOf = new Map(all.map((m, i) => [m, Ls[i]]));
+      notes.forEach((n) => { n.letters = (n.midis || [n.midi]).map((m) => letterOf.get(m)); });
+    }
+    try {
+      return `<div class="score" aria-label="The answer on a staff">${TL.Notation.staff({ key, sig: q.tonic != null, notes, lyrics, chords, width: Math.min(520, Math.max(300, window.innerWidth - 32)), highlight: missed || [] })}</div>`;
+    } catch (e) { return ''; }
+  }
+  const rhythmStaff = (r) => (S.settings.notation !== 'off' && TL.Notation && r ? `<div class="score">${TL.Notation.rhythm({ rhythm: r, width: Math.min(520, Math.max(300, window.innerWidth - 32)) })}</div>` : '');
   function contourSVG(q, input) {
     const mel = q.melody;
     const ans = [mel[0]];
@@ -2136,6 +2215,7 @@
       panel.innerHTML = `<p class="verdict">${res.pass ? 'Correct' : 'Not quite'}</p>
         <p class="explain">${esc(lines.join(' '))}</p>
         ${steadyLate ? '<p class="tip">Your taps land late by about the same amount every time. With Bluetooth headphones or a touch screen, that is usually the device’s delay. Open Preferences, Rhythm timing, and press Calibrate.</p>' : ''}
+        ${rhythmStaff(q.rhythm)}
         ${rhythmSVG(q, res)}
         <div class="legend"><span><i style="background:var(--good)"></i>a note you tapped in time</span><span><i style="background:var(--bad)"></i>a note you missed</span><span><i style="background:var(--ink-2);height:3px"></i>your tap</span><span><i style="background:var(--bad);height:3px"></i>a tap off its note</span><span><i style="background:transparent;border:1.5px dashed var(--muted)"></i>rest</span></div>
         <p class="muted" style="font-size:12.5px">A block’s length shows how long the note lasts.</p>
@@ -2220,7 +2300,7 @@
         ? `<button class="btn sm" data-act="introRhythm" data-card="${ci}">Hear it</button>`
         : c.demos.map((d, di) => `<button class="btn sm" data-act="demo" data-card="${ci}" data-demo="${di}">${esc(d.label)}</button>`).join('');
       const hint = c.hintKey ? `<label>Optional: know a song with this jump? Type its name. It will show after each answer for this interval${c.hasSong ? ', in place of the song above' : ''}.<input type="text" id="hint-${esc(c.hintKey)}" data-hint="${esc(c.hintKey)}" value="${esc(c.hint)}" placeholder="Song name" maxlength="80"></label>` : '';
-      const counts = c.rhythm ? countLine(c.rhythm) : '';
+      const counts = c.rhythm ? countLine(c.rhythm) + rhythmStaff(c.rhythm) : '';
       return `<div class="icard deg" style="--h:${hue || tr.hue}">
         <h3 class="${trackId === 'harmony' || !degLike || !DEG[did] ? 'rn' : ''}">${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ''}</h3>
         ${c.text ? `<p>${esc(c.text)}</p>` : ''}${counts}
@@ -2299,10 +2379,220 @@
   };
   const exTonic = () => tonicForPc(EX.pc);
   const exTimbre = () => EX.timbre || (S.settings.timbre === 'vary' ? 'piano' : S.settings.timbre);
+
+  // ---------- your music ----------
+  // A recording of the learner's own: looped, slowed, with Do held under it and the chords marked.
+  // The player and the analysis live in TL.Music; this is the page over them. Everything stays on
+  // the device: the file in memory for the visit, what was marked in localStorage.
+  const PL = TL.Music ? TL.Music.player : null;
+  const MU = { fp: null, entry: null, an: null, analysing: false, progress: 0, gen: 0, key: null, mode: 'major', cands: null, hum: null, mark: null, droneOn: false, drone: 1.5, tooLong: false, decodeErr: '', resume: false };
+  // the hum's result names the note in the mode chosen now, which the learner may change after
+  const muHumText = () => (!MU.hum ? '' : MU.hum.state === 'done' ? `You hummed ${(muMode() === 'minor' ? TL.MINOR_KEY_NAMES : TL.KEY_NAMES)[MU.hum.pc]}. Major or minor is your call: pick one and hold the drone.` : MU.hum.text || '');
+  const muKeyName = (k) => (k ? (k.mode === 'minor' ? TL.MINOR_KEY_NAMES[k.pc] + ' minor' : TL.KEY_NAMES[k.pc] + ' major') : '');
+  const muTonic = () => (MU.key ? tonicForPc(MU.key.pc) : null);
+  const muMode = () => (MU.key ? MU.key.mode : MU.mode);
+  const muSave = () => {
+    if (!MU.fp || !PL) return;
+    const st = PL.state();
+    MU.entry = TL.Music.files.put(MU.fp, { name: st.name, dur: st.duration, key: MU.key, loop: st.loop, speed: st.rate, drone: MU.drone, marks: MU.entry ? MU.entry.marks : [] });
+  };
+  async function musicOpen(file) {
+    if (!file || !PL) return;
+    const gen = ++MU.gen; // a later open supersedes this one at any point
+    Object.assign(MU, { an: null, analysing: false, progress: 0, cands: null, hum: null, mark: null, tooLong: '', decodeErr: '', resume: false });
+    A.droneStop(0.3); MU.droneOn = false;
+    const st = await PL.open(file);
+    if (gen !== MU.gen) return;
+    MU.fp = TL.Music.fingerprint(file, st.duration);
+    MU.entry = TL.Music.files.get(MU.fp) || TL.Music.files.put(MU.fp, { name: file.name, dur: st.duration, marks: [] });
+    MU.key = MU.entry.key; MU.mode = MU.key ? MU.key.mode : 'major'; MU.drone = MU.entry.drone;
+    if (MU.entry.loop) PL.setLoop(MU.entry.loop[0], MU.entry.loop[1]);
+    PL.setRate(MU.entry.speed || 1);
+    if (app.view === 'music') render();
+    if (st.error) return;
+    // looping and slowing still work on anything; the picture and Find Do need the whole file decoded
+    if (st.duration > 20 * 60 || file.size > 150e6) { MU.tooLong = st.duration > 20 * 60 ? 'Longer than twenty minutes' : 'Larger than 150 MB'; if (app.view === 'music') render(); return; }
+    MU.analysing = true; renderMusicState();
+    try {
+      const src = await TL.Music.decode(file);
+      if (gen !== MU.gen) return;
+      const an = await TL.Music.analyse(src, { onProgress: (p) => { MU.progress = p; renderMusicState(); }, cancelled: () => gen !== MU.gen });
+      if (gen !== MU.gen) return;
+      MU.an = an;
+    } catch (e) { if (gen === MU.gen) MU.decodeErr = e.message; }
+    if (gen !== MU.gen) return;
+    MU.analysing = false;
+    if (app.view !== 'music') return; // the read may finish while another view is up
+    // someone typing in a mark keeps the caret: only the picture and the check button change
+    const ae = document.activeElement;
+    if (ae && ae.matches && ae.matches('.music input[type="text"]')) {
+      musicAfterRender();
+      const b = $('[data-act="muCheck"]');
+      if (b && MU.an) { b.disabled = false; if (b.nextElementSibling) b.nextElementSibling.remove(); }
+    } else render();
+  }
+  function musicLeave() {
+    if (!PL) return;
+    PL.pause();
+    A.droneStop(0.3); MU.droneOn = false;
+    MU.hum = null; MU.resume = false;
+  }
+  // the picture of the file, from the analysis's peaks, drawn whenever the view is built
+  function musicAfterRender() {
+    const c = $('#muCanvas');
+    if (c && MU.an) {
+      const dpr = Math.min(2, window.devicePixelRatio || 1), w = c.clientWidth, h = c.clientHeight;
+      c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+      const g = c.getContext('2d'); g.scale(dpr, dpr);
+      g.fillStyle = getComputedStyle(c).color; g.globalAlpha = 0.55;
+      const n = MU.an.columns, pk = MU.an.peaks;
+      for (let i = 0; i < n; i++) { const x = (i / n) * w, lo = pk[2 * i], hi = pk[2 * i + 1]; g.fillRect(x, h / 2 - hi * h * 0.48, Math.max(1, w / n), (hi - lo) * h * 0.48 + 1); }
+    }
+    renderMusicState();
+  }
+  // the parts that move: time, the playhead, the loop, the Play button, the analysis progress
+  function renderMusicState() {
+    if (!PL || app.view !== 'music') return;
+    const st = PL.state(), M = TL.Music.mmss;
+    const t = $('#muTime'); if (t) t.textContent = st.file ? `${M(st.time)} / ${M(st.duration)}` : '';
+    const p = $('#muPlay'); if (p) p.innerHTML = `${st.playing ? 'Pause' : 'Play'} <kbd>Space</kbd>`;
+    const head = $('#muHead'); if (head && st.duration) head.style.left = `${((st.time / st.duration) * 100).toFixed(2)}%`;
+    const shade = $('#muShade'); if (shade) { if (st.loop && st.duration) { shade.style.display = ''; shade.style.left = `${((st.loop[0] / st.duration) * 100).toFixed(2)}%`; shade.style.width = `${(((st.loop[1] - st.loop[0]) / st.duration) * 100).toFixed(2)}%`; } else shade.style.display = 'none'; }
+    const lp = $('#muLoopText'); if (lp) lp.textContent = st.loop ? `Loop ${M(st.loop[0])} – ${M(st.loop[1])}` : 'No loop: press Loop from here at the start of a passage and to here at its end.';
+    const pr = $('#muProgress'); if (pr) pr.textContent = MU.analysing ? `Reading the file for the picture and Find Do… ${Math.round(MU.progress * 100)}%` : '';
+    const rv = $('#muRateVal'); if (rv) rv.textContent = `${Math.round(st.rate * 100)}%`;
+    const hm = $('#muHum'); if (hm && MU.hum) hm.textContent = MU.hum.state === 'opening' ? 'Opening the microphone…' : MU.hum.state === 'listening' ? 'Listening. Hum home and hold it…' : muHumText();
+    const err = $('#muErr'); if (err) err.textContent = st.error || MU.decodeErr || '';
+  }
+  // hum home for two seconds: the app names the note; major or minor stays the learner's call
+  async function musicHum() {
+    if (!micAvailable() || !PL || (MU.hum && (MU.hum.state === 'opening' || MU.hum.state === 'listening'))) return;
+    MU.hum = { state: 'opening' }; renderMusicState();
+    const gen = MU.gen;
+    // in silence: the speaker sits next to the microphone. The four chords stop too, and the
+    // recording they were going to bring back comes back after the hum instead.
+    const was = PL.state().playing || MU.resume;
+    MU.resume = false;
+    A.stop(); PL.pause(); if (MU.droneOn) A.droneStop(0.1);
+    const here = () => app.view === 'music' && gen === MU.gen;
+    // the drone as the learner has it now (they may have pressed it while the app listened)
+    const back = () => { if (!here()) return; if (MU.droneOn && MU.key && A.droneTonic == null) A.droneStart(muTonic(), MU.drone); if (was) PL.play(); };
+    // leaving mid-hum: the microphone goes, unless a set that listens has taken it over
+    const gone = () => { MU.hum = null; if (!(R && app.view === 'session')) A.micClose(); };
+    try { A.ensure(); A.wake(); await A.micOpen(); } catch (e) { if (!here()) { MU.hum = null; return; } MU.hum = { state: 'failed', text: 'The microphone did not open. You can still pick the note by ear below.' }; back(); renderMusicState(); return; }
+    if (!here()) { gone(); return; }
+    MU.hum = { state: 'listening' }; renderMusicState();
+    const hz = [], t0 = performance.now();
+    while (performance.now() - t0 < 2500 && gen === MU.gen && app.view === 'music') {
+      await new Promise((r) => setTimeout(r, 50));
+      const f = A.micFrame();
+      if (f) { try { const d = TL.Pitch.detect(f, A.micRate()); if (d && d.hz > 0) hz.push(d.hz); } catch (e) { /* counted as unheard */ } }
+    }
+    if (!here()) { gone(); return; }
+    A.micClose();
+    if (hz.length < 8) { MU.hum = { state: 'failed', text: 'Nothing steady was heard. Hum a little louder, for two seconds.' }; back(); renderMusicState(); return; }
+    hz.sort((a, b) => a - b);
+    const pc = TL.mod12(Math.round(69 + 12 * Math.log2(hz[hz.length >> 1] / 440)));
+    MU.key = { pc, mode: muMode() }; MU.cands = null; muSave();
+    MU.hum = { state: 'done', pc };
+    back();
+    render();
+  }
+  function musicCheck() {
+    if (!MU.an || !PL) return;
+    const st = PL.state(), [a, b] = st.loop || [0, Infinity];
+    MU.cands = TL.Music.keysOver(MU.an, a, b).keys.slice(0, 3);
+    render();
+  }
+  // what the check says, against the learner's own pick
+  function muCheckText() {
+    if (!MU.cands) return '';
+    const top = MU.cands[0], name = muKeyName(top), k = MU.key;
+    if (!k) return `The app hears ${name}. Hum home and hold that drone: does the music settle on it?`;
+    if (top.pc === k.pc && top.mode === k.mode) return `The app hears ${name} too.`;
+    const relative = (k.mode === 'major' && top.mode === 'minor' && top.pc === TL.mod12(k.pc + 9)) || (k.mode === 'minor' && top.mode === 'major' && top.pc === TL.mod12(k.pc + 3));
+    if (relative) return `The app hears ${name}, the relative of ${muKeyName(k)}: the same notes, a different home. Hold each drone in turn and hum home.`;
+    return `The app hears ${name}; you picked ${muKeyName(k)}. Hold both drones in turn and hum home: which one does the music settle on?`;
+  }
+  function muChordsFor(bassId) {
+    const groups = EX_CHORDS[muMode()] || EX_CHORDS.major, semi = DEG[bassId] ? DEG[bassId].semi : -1;
+    return groups.map(([name, rns]) => [name, rns.filter((rn) => TL.RN[rn] && TL.rnBassPc(rn) === TL.mod12(semi))]).filter(([, rns]) => rns.length);
+  }
+  function viewMusic() {
+    if (!PL) return '<section class="music"><p class="lede">This copy cannot open music.</p></section>';
+    const st = PL.state(), has = !!st.file, M = TL.Music.mmss, mode = muMode();
+    setTimeout(musicAfterRender, 0);
+    const names = mode === 'minor' ? TL.MINOR_KEY_NAMES : TL.KEY_NAMES;
+    const pcRow = Array.from({ length: 12 }, (_, pc) => `<button class="chip${MU.key && MU.key.pc === pc ? ' on' : ''}" data-act="muKey" data-pc="${pc}">${esc(names[pc])}</button>`).join('');
+    const cands = MU.cands ? `<p class="tip">${esc(muCheckText())}</p><div class="chip-row">${MU.cands.map((c) => `<button class="chip${MU.key && MU.key.pc === c.pc && MU.key.mode === c.mode ? ' on' : ''}" data-act="muPick" data-pc="${c.pc}" data-mode="${c.mode}">${esc(muKeyName(c))}</button>`).join('')}</div>` : '';
+    const marks = MU.entry ? MU.entry.marks : [];
+    const markRows = marks.map((m, i) => `<li><button class="btn sm ghost mono" data-act="muSeek" data-t="${m.t}">${M(m.t)}</button><b class="serif">${esc(m.rn || '?')}</b><span class="muted">${m.bass ? 'on ' + esc(m.bass) : ''}</span><input type="text" class="note" data-live="muNote" data-i="${i}" value="${esc(m.note || '')}" placeholder="what you hear" maxlength="80"><button class="btn sm ghost" data-act="muDel" data-i="${i}" aria-label="Remove this mark">×</button></li>`).join('');
+    const pending = MU.mark ? `<div class="mark-edit">
+        <p class="eyebrow">Mark at ${M(MU.mark.t)}</p>
+        ${!MU.mark.bass ? `<p class="tip">Sing the lowest note along with the recording. Name it against Do.</p><div class="chip-row">${TL.DEGREES.map((d) => `<button class="chip${TL.MODE_SCALE[mode].includes(d.id) ? '' : ' chrom'}" data-act="muBass" data-id="${d.id}">${esc(degText(d.id).main)}</button>`).join('')}</div>`
+          : `<p class="tip">${esc(degText(MU.mark.bass).main)} in the bass. Which chord stands on it?</p>${muChordsFor(MU.mark.bass).map(([name, rns]) => `<div class="grp"><span class="muted">${esc(name)}</span><div class="chip-row">${rns.map((rn) => `<button class="rn-btn serif" data-act="muRn" data-rn="${esc(rn)}" style="--h:${rnHue(rn)}">${esc(rn)}</button>`).join('')}</div></div>`).join('')}<div class="row"><input type="text" id="muOther" data-live="muOther" value="${esc(MU.mark.other || '')}" placeholder="Something else: write it" maxlength="12"><button class="btn sm" data-act="muRnOther">Add</button><button class="btn sm ghost" data-act="muBassBack">Another bass</button></div>`}
+        <div class="row"><button class="btn sm ghost" data-act="muMarkCancel">Cancel</button></div>
+      </div>` : '';
+    return `<section class="music">
+      <p class="eyebrow">Your music</p>
+      <h1>Work on a recording</h1>
+      <p class="lede">Loop a passage from your own music, slow it down, hold Do under it, and mark the chords. The file stays on this device.</p>
+      <div class="row"><label class="btn primary">Open a file<input type="file" accept="audio/*,.mp3,.m4a,.wav,.aif,.aiff,.flac,.ogg" data-change="musicFile" hidden></label>${has ? `<span class="muted">${esc(st.name)} · ${M(st.duration)}</span>` : ''}</div>
+      <p class="muted" style="font-size:13px;max-width:62ch">MP3, M4A, WAV or AIFF. On an iPhone, open from Files or iCloud Drive; songs in the Music app cannot be opened here, your own bounces and downloads can. Nothing is uploaded.</p>
+      <p class="tip" id="muErr" style="color:var(--bad)">${esc(st.error || MU.decodeErr)}</p>
+      ${has ? `
+      <div class="overview" data-act="muOver"><canvas id="muCanvas"></canvas><div class="shade" id="muShade"></div><div class="head" id="muHead"></div></div>
+      <p class="muted" id="muProgress" style="font-size:13px"></p>
+      ${MU.tooLong ? `<p class="tip">${esc(MU.tooLong)}: looping and slowing work, the picture and Find Do are left out.</p>` : ''}
+      <div class="row">
+        <button class="btn primary" id="muPlay" data-act="muPlay">Play <kbd>Space</kbd></button>
+        <button class="btn" data-act="muBack" title="Two seconds back">−2 s <kbd>←</kbd></button>
+        <button class="btn" data-act="muFwd" title="Two seconds on">+2 s <kbd>→</kbd></button>
+        <span class="mono" id="muTime"></span>
+      </div>
+      <div class="row">
+        <button class="btn" data-act="muA">Loop from here <kbd>A</kbd></button>
+        <button class="btn" data-act="muB">to here <kbd>B</kbd></button>
+        <button class="btn ghost" data-act="muLoopOff">No loop <kbd>L</kbd></button>
+        <span class="muted" id="muLoopText"></span>
+      </div>
+      <p class="muted" style="font-size:13px">A loop jumps back with a short gap; M4A and WAV loop tighter than MP3.</p>
+      <div class="row">
+        <label class="field">Speed <input type="range" min="50" max="100" step="5" value="${Math.round(st.rate * 100)}" data-live="muRate"> <span class="mono" id="muRateVal">${Math.round(st.rate * 100)}%</span></label>
+        <button class="btn sm" data-act="muRateSet" data-v="1">100%</button><button class="btn sm" data-act="muRateSet" data-v="0.75">75%</button><button class="btn sm" data-act="muRateSet" data-v="0.5">50%</button>
+      </div>
+      <p class="muted" style="font-size:13px">Slow it down to hear the bass and the inner voices. Then go back to full speed.</p>
+
+      <h2>Find Do</h2>
+      <ol class="steps">
+        <li><strong>Hum what feels like home.</strong> Let the passage play, pause it, then hum the note the music keeps coming back to.${micAvailable() ? ` <button class="btn sm" data-act="muHum">Hum your Do: the app names the note</button> <span class="muted" id="muHum">${esc(muHumText())}</span>` : ''}</li>
+        <li><strong>Pick that note, and major or minor.</strong> Hold the drone on it. Does the music settle on it, or lean away?
+          <div class="seg" role="group" aria-label="Major or minor"><button aria-pressed="${mode === 'major'}" data-act="muMode" data-mode="major">Major</button><button aria-pressed="${mode === 'minor'}" data-act="muMode" data-mode="minor">Minor</button></div>
+          <div class="chip-row">${pcRow}</div>
+          <div class="row">
+            <button class="btn" data-act="muDrone" ${MU.key ? '' : 'disabled'}>${MU.droneOn ? 'Stop the drone' : 'Hold Do (drone)'}</button>
+            <button class="btn" data-act="muCadence" ${MU.key ? '' : 'disabled'}>Play the four chords</button>
+            <label class="field">Drone level <input type="range" min="0.3" max="3" step="0.1" value="${MU.drone}" data-live="muDroneLevel"></label>
+          </div>
+        </li>
+        <li><strong>Then the check.</strong> The app guesses from the sound of the ${st.loop ? 'loop' : 'whole file'}; the ear decides.
+          <div class="row"><button class="btn" data-act="muCheck" ${MU.an ? '' : 'disabled'}>${MU.key ? 'Check my Do' : 'Guess the key'}</button>${MU.an ? '' : '<span class="muted">(after the file is read)</span>'}</div>
+          ${cands}
+        </li>
+      </ol>
+
+      <h2>Mark the chords</h2>
+      <p class="tip">Sing the lowest note of each chord against the drone and name it. The chord stands on that note. Press Mark where a chord changes.</p>
+      <div class="row"><button class="btn primary" data-act="muMark" ${MU.key ? '' : 'disabled'}>Mark here <kbd>M</kbd></button>${MU.key ? '' : '<span class="muted">Pick the key first.</span>'}${marks.length ? '<button class="btn ghost" data-act="muCopy">Copy as text</button>' : ''}</div>
+      ${pending}
+      <ol class="marks">${markRows}</ol>
+      ` : ''}
+    </section>`;
+  }
   function viewExplore() {
     const opts = TL.DEGREES.map((d) => ({ id: d.id }));
     const keyOpts = TL.KEY_NAMES.map((n, i) => `<option value="${i}" ${i === EX.pc ? 'selected' : ''}>${EX.mode === 'minor' ? TL.MINOR_KEY_NAMES[i] : n}</option>`).join('');
-    const tim = Object.entries(A.TIMBRES).map(([k, v]) => `<option value="${k}" ${k === exTimbre() ? 'selected' : ''}>${v}</option>`).join('');
+    const tim = timbreOptions(exTimbre()).map(([k, v]) => `<option value="${k}" ${k === exTimbre() ? 'selected' : ''}>${esc(v)}</option>`).join('');
     const groups = EX_CHORDS[EX.mode].map(([name, list]) => `<div class="grp"><span>${esc(name)}</span><div class="chip-row">${list.map((n) => `<button class="rn-btn" data-act="exChord" data-rn="${esc(n)}" style="box-shadow: inset 0 -3px 0 oklch(var(--mark-l) var(--mark-c) ${rnHue(n)})">${esc(n)}</button>`).join('')}</div></div>`).join('');
     const ivBtns = TL.INTERVALS.map((iv) => `<button class="choice" data-act="exInterval" data-iv="${iv.id}" style="min-height:52px"><span class="lbl">${iv.short}</span><span class="sub">${esc(iv.name)}</span></button>`).join('');
     const qBtns = Object.entries(TL.CHORD_TYPES).map(([k, c]) => `<button class="choice" data-act="exQuality" data-q="${k}" style="min-height:52px"><span class="lbl">${esc(c.name)}</span><span class="sub">${esc(TL.KEY_NAMES[EX.pc] + c.sym)}</span></button>`).join('');
@@ -2502,7 +2792,7 @@
           <li><strong>Sing out loud</strong>, or hum. If you can sing a note, you can hear it.</li>
           <li><strong>Don’t rush.</strong> Accuracy first. Response time is tracked but never required; speed follows accuracy.</li>
           <li><strong>Expect about 80% right.</strong> Questions are pitched at the edge of what you can hear. Scores in the 70s and 80s mean the training is working.</li>
-          <li><strong>Take it to your own music.</strong> Once a week, sing the bass line of a piece you love in scale degrees, or work out a melody in Explore. Before writing a melody down, sing it in solfège first.</li>
+          <li><strong>Take it to your own music.</strong> Once a week, open a piece you love under Music: loop a passage, hold Do under it, sing its bass line in scale degrees and mark the chords. Before writing a melody down, sing it in solfège first.</li>
         </ul>
         <h2>Further reading</h2>
         <ul class="refs">
@@ -2522,6 +2812,16 @@
   // ======================================================================
   let resetArmed = false;
   const MOVE = { copied: null, pasting: false, error: '', warn: '', pasted: '' };
+  // a link always opens the site copy: the claude.ai one sits in a frame the fragment never reaches
+  const linkBase = () => (micCopy() ? 'https://noaware.io/tone-ladder/' : location.origin + location.pathname);
+  // opened from a link: the progress it carries goes into the paste panel, with the same checks
+  function openLink(hash) {
+    history.replaceState(null, '', location.pathname + location.search); // a reload must not ask again
+    S.textFromLink(hash).then(
+      (text) => { go('prefs'); Object.assign(MOVE, { pasting: true, pasted: text, error: '', warn: '' }); render(); const t = $('#importText'); if (t) t.scrollIntoView({ block: 'center' }); },
+      (e) => { go('prefs'); Object.assign(MOVE, { pasting: true, pasted: '', error: e.message, warn: '' }); render(); }
+    );
+  }
   const CAL = { active: false, taps: [] };
   const MIC_PREF_ERR = {
     blocked: () => `The browser blocked the microphone. ${micUnblockHint()} Then choose it again here.`,
@@ -2664,7 +2964,14 @@
       <div class="page-head"><p class="eyebrow">Settings</p><h1>Preferences</h1></div>
       <div class="prefs">
         <section class="pgroup"><h2>Sound</h2>
-          ${row('Instrument', 'Varying the instrument helps you hear each note’s place in the key, not the sound of one instrument.', sel('timbre', [...Object.entries(A.TIMBRES), ['vary', 'Vary by question']]))}
+          ${(() => {
+            const opts = [...timbreOptions(s.timbre), ['vary', 'Vary by question']];
+            const rec = A.SAMPLED[s.timbre], state = rec ? A.sampled(s.timbre) : 'none';
+            const credits = Object.entries(A.SAMPLED).map(([n, d]) => { const i = A.samplesInfo(n); return i && i.source ? `${d.label}: ${i.source}${i.licence ? ', ' + i.licence : ''}.` : ''; }).filter(Boolean).join(' ');
+            const own = rec ? rec.label.toLowerCase() : '', synth = rec ? A.TIMBRES[rec.synth].toLowerCase() : '';
+            const note = !rec || state === 'ready' ? '' : state === 'missing' ? ` The ${own} is not on this copy, so the ${synth} plays instead.` : state === 'failed' ? ` The ${own} could not be loaded; the ${synth} plays until it has.` : ` The ${own} is still loading; the ${synth} plays until it has.`;
+            return row('Instrument', 'Varying the instrument helps you hear each note’s place in the key, not the sound of one instrument.' + note + (credits ? ' ' + credits : ''), sel('timbre', opts));
+          })()}
           ${row('Volume', '', `<input type="range" min="0" max="1" step="0.05" id="pref-volume" data-pref="volume" value="${esc(s.volume)}">`)}
           ${row('Playback speed', 'Applies to the four chords, melodies, progressions and rhythm tempo.', sel('speed', [[0.8, 'Slower'], [1, 'Normal'], [1.2, 'Faster']]))}
           <div class="row"><button class="btn" data-act="soundCheck">Sound check</button><button class="btn ghost" data-act="selfTest">Test the audio engine</button><span class="muted" id="selfTestOut" style="font-size:13px"></span></div>
@@ -2677,7 +2984,8 @@
         </section>
         <section class="pgroup"><h2>Practice</h2>
           ${row('Note names', '', sel('labels', [['both', 'Solfège and numbers (Sol 5)'], ['solfege', 'Solfège only (Sol)'], ['numbers', 'Numbers only (5)']]))}
-          ${row('Answer notes on', 'The ladder shows the notes by their place in the key. The piano shows the same notes on a keyboard of the question’s key, with its black and white keys.', sel('input', [['ladder', 'The tone ladder'], ['piano', 'Piano keys']]))}
+          ${row('Answer notes on', 'The ladder shows the notes by their place in the key. The piano shows the same notes on a keyboard of the question’s key, with its black and white keys. The staff writes them in the key, with its signature.', sel('input', [['ladder', 'The tone ladder'], ['piano', 'Piano keys'], ['staff', 'A staff']]))}
+          ${row('The answer on a staff', 'After each answer, what sounded is written on a staff in the key, with the names underneath: the path from hearing to the page.', sel('notation', [['answers', 'Shown'], ['off', 'Off']]))}
           ${midiSupported() ? row('MIDI keyboard', midiNote_(), MIDI.status === 'on' || MIDI.status === 'empty' ? '<button class="btn ghost" data-act="midiOff">Disconnect</button>' : '<button class="btn" data-act="midiOn">Connect a MIDI keyboard</button>') : ''}
           ${row('Daily goal', 'Sets the length of the Today plan.', sel('dailyGoal', [[15, '15 questions · about 6 min'], [30, '30 questions · about 12 min'], [50, '50 questions · about 20 min']]))}
           ${row('Auto-advance', 'Move on after a correct answer once the answer has finished playing.', chk('autoAdvance', 'On'))}
@@ -2701,6 +3009,8 @@
             <strong>Move your progress</strong>
             <span>Copy your progress here, then paste it into Tone Ladder in another browser or on another device, or between noaware.io and the claude.ai version. On an iPhone or iPad, a copy added to the Home Screen keeps its own progress: copy it here, then paste it there.</span>
             <div class="row"><button class="btn" data-act="exportProgress">Copy my progress</button><button class="btn" data-act="importOpen">Paste progress…</button></div>
+            ${S.canLink ? `<div class="row"><button class="btn" data-act="linkCopy">Copy a link</button>${navigator.share ? '<button class="btn" data-act="linkShare">Share a link…</button>' : ''}</div>
+            <span>A link carries your progress and opens Tone Ladder with it on another device${micCopy() ? ', at noaware.io' : ''}: send it to yourself and open it there. Text is for the copies that cannot open a link: the claude.ai version, and a copy added to the Home Screen on an iPhone or iPad.</span>` : '<span>This browser cannot make a link that carries your progress; Copy my progress works.</span>'}
             ${MOVE.copied ? `<label class="field">Copying was blocked here. Select all of this text and copy it yourself:<textarea id="exportText" readonly>${esc(MOVE.copied)}</textarea></label>` : ''}
             ${MOVE.pasting ? `<label class="field">Paste the progress you copied:<textarea id="importText" placeholder="Paste here">${esc(MOVE.pasted)}</textarea></label>
               ${MOVE.error ? `<p class="tip" style="color:var(--bad)">${esc(MOVE.error)}</p>` : ''}
@@ -2750,7 +3060,8 @@
   // ======================================================================
   function go(view, params = {}) {
     if (R && view !== 'session') endRunner();
-    if (view !== 'explore') { A.droneStop(0.3); }
+    if (view !== app.view || (view !== 'explore' && view !== 'music')) A.droneStop(0.3); // Explore and Music keep their own drone
+    if (app.view === 'music' && view !== 'music') musicLeave();
     app.view = view;
     app.params = params;
     resetArmed = false;
@@ -2766,7 +3077,8 @@
     });
     const v = $('#view');
     if (app.view === 'session') { if (R) renderSession(); else { app.view = 'today'; v.innerHTML = viewToday(); } return; }
-    const views = { today: viewToday, track: viewTrack, explore: viewExplore, progress: viewProgress, method: viewMethod, prefs: viewPrefs };
+    if ((app.view === 'prefs' || app.view === 'explore') && !micCopy()) Object.keys(A.SAMPLED).forEach((n) => A.probeSamples(n)); // which recorded sets this copy has
+    const views = { today: viewToday, track: viewTrack, explore: viewExplore, music: viewMusic, progress: viewProgress, method: viewMethod, prefs: viewPrefs };
     const newer = S.blocked ? `<section class="welcome" style="grid-template-columns:1fr;margin-top:12px"><div>
         <p class="eyebrow">Update needed</p>
         <h2>Your progress was saved by a newer version of Tone Ladder</h2>
@@ -2877,6 +3189,42 @@
     singCopy,
     micTest,
     micRange,
+    staffAlt: () => { if (R) { R.staffAlt = !R.staffAlt; renderStage(); } },
+    // your music
+    muPlay: () => { A.wake(); MU.resume = false; PL.toggle(); }, // the learner's own Play or Pause overrides a pending resume
+    muBack: () => PL.seek(PL.time - 2),
+    muFwd: () => PL.seek(PL.time + 2),
+    muOver: (d, el, e) => { const r = el.getBoundingClientRect(); const st = PL.state(); if (st.duration && e && e.clientX != null) PL.seek(((e.clientX - r.left) / r.width) * st.duration); },
+    muA: () => { const st = PL.state(); if (!st.file) return; const t = PL.time, b = st.loop ? Math.max(st.loop[1], t + 1) : Math.min(st.duration, t + 8); PL.setLoop(t, b); muSave(); renderMusicState(); },
+    muB: () => { const st = PL.state(); if (!st.file) return; const t = PL.time, a = st.loop ? Math.min(st.loop[0], t - 0.5) : Math.max(0, t - 8); PL.setLoop(a, t); muSave(); renderMusicState(); },
+    muLoopOff: () => { PL.setLoop(null, null); muSave(); renderMusicState(); },
+    muRate: (d) => { PL.setRate((+d.v || 100) / 100); muSave(); renderMusicState(); },
+    muRateSet: (d) => { PL.setRate(+d.v || 1); muSave(); render(); },
+    muKey: (d) => { MU.key = { pc: +d.pc, mode: muMode() }; MU.cands = null; muSave(); if (MU.droneOn) A.droneStart(muTonic(), MU.drone); render(); },
+    muMode: (d) => { MU.mode = d.mode === 'minor' ? 'minor' : 'major'; if (MU.key) { MU.key = { pc: MU.key.pc, mode: MU.mode }; muSave(); if (MU.droneOn) A.droneStart(muTonic(), MU.drone); } MU.cands = null; render(); },
+    muPick: (d) => { MU.key = { pc: +d.pc, mode: d.mode }; MU.mode = d.mode; muSave(); if (MU.droneOn) A.droneStart(muTonic(), MU.drone); render(); },
+    muDrone: () => { if (!MU.key) return; A.wake(); if (MU.droneOn) { A.droneStop(0.5); MU.droneOn = false; } else { A.droneStart(muTonic(), MU.drone); MU.droneOn = true; } render(); },
+    muDroneLevel: (d) => { MU.drone = +d.v || 1; if (MU.droneOn) A.droneLevel(MU.drone); muSave(); },
+    muCadence: () => {
+      if (!MU.key) return;
+      // a second press cuts the first short (its done is false) and takes over its promise to resume
+      MU.resume = PL.state().playing || MU.resume; PL.pause(); A.wake();
+      const h = A.play(TL.cadenceEvents(muTonic(), muMode()), { timbre: pickTimbre() });
+      h.done.then((ok) => { if (!ok) return; const r = MU.resume; MU.resume = false; if (r && app.view === 'music') PL.play(); });
+    },
+    muHum: () => musicHum(),
+    muCheck: () => musicCheck(),
+    muMark: () => { if (!MU.key || !PL.state().file) return; MU.mark = { t: Math.round(PL.time * 10) / 10, bass: '' }; render(); },
+    muMarkCancel: () => { MU.mark = null; render(); },
+    muBass: (d) => { if (MU.mark) { MU.mark.bass = d.id; render(); } },
+    muBassBack: () => { if (MU.mark) { MU.mark.bass = ''; render(); } },
+    muRn: (d) => { if (!MU.mark || !MU.entry) return; MU.entry.marks.push({ t: MU.mark.t, bass: degText(MU.mark.bass).main, rn: d.rn, note: '' }); MU.mark = null; muSave(); render(); },
+    muOther: (d) => { if (MU.mark) MU.mark.other = String(d.v || '').slice(0, 12); },
+    muRnOther: () => { const v = (MU.mark && MU.mark.other) || ''; if (!MU.mark || !MU.entry || !v.trim()) return; MU.entry.marks.push({ t: MU.mark.t, bass: degText(MU.mark.bass).main, rn: v.trim().slice(0, 12), note: '' }); MU.mark = null; muSave(); render(); },
+    muNote: (d) => { if (MU.entry && MU.entry.marks[+d.i]) { MU.entry.marks[+d.i].note = String(d.v || '').slice(0, 80); muSave(); } },
+    muDel: (d) => { if (MU.entry) { MU.entry.marks.splice(+d.i, 1); muSave(); render(); } },
+    muSeek: (d) => { PL.seek(+d.t || 0); },
+    muCopy: () => { if (!MU.entry) return; const text = `${MU.entry.name} · ${muKeyName(MU.key)}\n${TL.Music.marksText(MU.entry)}`; navigator.clipboard.writeText(text).then(() => toast('Marks copied.', 2000), () => toast('Copying was blocked here.', 2600)); },
     midiOn: () => midiConnect(),
     midiOff: () => midiDisconnect(),
     takeAsk: (d, el, e) => {
@@ -2936,6 +3284,8 @@
     reload: () => location.reload(),
     backupLater: () => { setDeviceInfo({ snoozeUntil: Date.now() + 14 * 86400000 }); render(); },
     importOpen: () => { Object.assign(MOVE, { pasting: true, error: '', warn: '', pasted: '' }); render(); const t = $('#importText'); if (t) t.focus(); },
+    linkCopy: () => S.exportLink(linkBase()).then((link) => navigator.clipboard.writeText(link).then(() => { setDeviceInfo({ backupAt: Date.now() }); toast('Link copied. Open it on the other device: Tone Ladder asks there before replacing anything.', 3800); }, () => { MOVE.copied = link; render(); const t = $('#exportText'); if (t) { t.focus(); t.select(); } }), (e) => toast(e.message, 3000)),
+    linkShare: () => S.exportLink(linkBase()).then((url) => navigator.share({ title: 'Tone Ladder progress', url }).catch(() => { /* the sheet was closed */ }), (e) => toast(e.message, 3000)),
     importCancel: () => { Object.assign(MOVE, { pasting: false, error: '', warn: '', pasted: '' }); render(); },
     importConfirm: (d) => {
       const t = $('#importText');
@@ -3000,6 +3350,7 @@
   function flashPad(sel) { const p = $(sel); if (p) { p.classList.add('hit'); setTimeout(() => p.classList.remove('hit'), 90); } }
   document.addEventListener('change', (e) => {
     const el = e.target;
+    if (el.dataset.change === 'musicFile') { const f = el.files && el.files[0]; el.value = ''; if (f) musicOpen(f); return; }
     if (el.dataset.pref) {
       const k = el.dataset.pref;
       let v = el.type === 'checkbox' ? el.checked : el.value;
@@ -3028,6 +3379,7 @@
     if (el.dataset.hint) { S.settings.hints[el.dataset.hint] = el.value.trim(); S.touch(); }
   });
   document.addEventListener('input', (e) => {
+    if (e.target.dataset && e.target.dataset.live && ACT[e.target.dataset.live]) { ACT[e.target.dataset.live]({ ...e.target.dataset, v: e.target.value }); return; }
     if (e.target.dataset.pref === 'volume') { S.settings.volume = +e.target.value; applyAudio(); }
   });
   // activity chart tooltip
@@ -3048,6 +3400,15 @@
     if (e.target.matches && e.target.matches('input, select, textarea')) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (CAL.active && (e.code === 'Space')) { e.preventDefault(); if (!e.repeat) { CAL.taps.push(A.heardTime(safeTs(e.timeStamp))); flashPad('#calPad'); } return; }
+    if (app.view === 'music' && PL && PL.state().file) {
+      if (e.target.closest && e.target.closest('button[data-act]') && (e.key === 'Enter' || e.code === 'Space')) return;
+      const k = e.key.toLowerCase();
+      if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) ACT.muPlay(); }
+      else if (k === 'arrowleft') { e.preventDefault(); ACT.muBack(); }
+      else if (k === 'arrowright') { e.preventDefault(); ACT.muFwd(); }
+      else if (k === 'a') ACT.muA(); else if (k === 'b') ACT.muB(); else if (k === 'l') ACT.muLoopOff(); else if (k === 'm' && !e.repeat) ACT.muMark();
+      return;
+    }
     if (app.view !== 'session' || !R) return;
     // a button reached with the keyboard presses itself (Enter or Space), not the screen's shortcut
     const btn = e.target.closest && e.target.closest('button[data-act]');
@@ -3135,12 +3496,14 @@
     if (S.blocked && R && R.phase !== 'summary') finishSession(true);
   });
   const h = (location.hash || '').replace('#', '');
-  if (['explore', 'progress', 'method', 'prefs'].includes(h)) app.view = h;
+  if (['explore', 'music', 'progress', 'method', 'prefs'].includes(h)) app.view = h;
   applyAudio();
   render();
   S.init().then(() => { applyAudio(); if (app.view !== 'session') render(); });
   // works offline once seen (the site copy only; the claude.ai copy is served another way)
   if ('serviceWorker' in navigator && !micCopy() && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { /* no offline copy on this device */ });
   if (deviceInfo().midi === 'on' && midiSupported()) midiReconnect();
-  window.__toneLadder = { app, get runner() { return R; }, ACT, midiNote };
+  if (/^#p=/.test(location.hash)) openLink(location.hash);
+  if (PL) PL.onChange = () => renderMusicState();
+  window.__toneLadder = { app, get runner() { return R; }, ACT, midiNote, musicOpen, get music() { return MU; } };
 })();

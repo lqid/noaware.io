@@ -21,7 +21,7 @@ const fetched = [];
 const fetch = async (req) => {
   if (!online) throw new TypeError('offline');
   const u = href(req); fetched.push(u);
-  const ok = fs.existsSync(onDisk(u)) && fs.statSync(onDisk(u)).isFile();
+  const ok = /\/samples\//.test(u) || (fs.existsSync(onDisk(u)) && fs.statSync(onDisk(u)).isFile()); // recorded notes are not in the repo
   return { ok, status: ok ? 200 : 404, url: u, from: 'network', clone() { return this; } };
 };
 const stores = new Map();
@@ -77,7 +77,7 @@ const tick = () => new Promise((r) => setImmediate(r));
   if (!stores.has('tone-ladder-shell')) fail('activate dropped the shell cache');
   if (!flags.claim) fail('activate does not claim clients');
 
-  const ask = async (req) => { let answer; listeners.fetch({ request: { method: 'GET', mode: 'cors', ...req }, respondWith: (p) => { answer = p; } }); const res = answer ? await answer : undefined; await tick(); await tick(); return { handled: !!answer, res }; };
+  const ask = async (req) => { let answer, res; listeners.fetch({ request: { method: 'GET', mode: 'cors', ...req }, respondWith: (p) => { answer = p; } }); try { res = answer ? await answer : undefined; } catch (e) { res = undefined; } await tick(); await tick(); return { handled: !!answer, res }; };
   // online: the network answers and the copy is refreshed
   fetched.length = 0;
   let r = await ask({ url: BASE + 'js/app.js' });
@@ -94,6 +94,18 @@ const tick = () => new Promise((r) => setImmediate(r));
   if (!r.res || r.res.url !== BASE) fail('offline page request did not fall back to the app page');
   r = await ask({ url: BASE + 'takes/x.wav' });
   if (r.res !== undefined) fail('an unknown offline request was answered');
+  // recorded notes: fetched once, then from the cache, online or not
+  online = true; fetched.length = 0;
+  r = await ask({ url: BASE + 'samples/piano/60-abcdef12.m4a' });
+  if (!r.handled || !r.res || r.res.from !== 'network') fail('a sample file was not fetched the first time');
+  r = await ask({ url: BASE + 'samples/piano/60-abcdef12.m4a' });
+  if (!r.res || fetched.length !== 1) fail('a sample file was fetched twice');
+  online = false;
+  r = await ask({ url: BASE + 'samples/piano/60-abcdef12.m4a' });
+  if (!r.res || r.res.from !== 'network') fail('a cached sample file was not answered offline');
+  r = await ask({ url: BASE + 'samples/piano/62-abcdef12.m4a' });
+  if (r.res !== undefined) fail('an unseen sample file was answered offline');
+  online = true;
   // not ours: other origins and non-GET requests pass straight through
   r = await ask({ url: 'https://example.com/x.js' });
   if (r.handled) fail('cross-origin request handled');

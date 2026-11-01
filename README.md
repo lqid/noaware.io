@@ -96,9 +96,11 @@ unlisted: nothing on the studio page links to it, and it carries `noindex`. All 
 | Studio look: fonts from `/fonts/`, paper palette | `static/tone-ladder/studio.css` |
 | The app: theory, sound, curriculum, progress, screens | `static/tone-ladder/js/` |
 | Offline copy and install: service worker, manifest, icons | `static/tone-ladder/sw.js`, `manifest.webmanifest`, `icon-*.png` |
+| Recorded instruments, built from a folder of notes | `static/tone-ladder/samples/<piano|strings>/` (not in git until recorded), `tone-ladder/samples/build.js` |
 
 Unlike the studio page it runs JavaScript, but only its own files, and it still makes no
-third-party requests: the sound is synthesized in the browser and the fonts are the studio's.
+third-party requests: the sound is synthesized in the browser or played from recorded notes
+served with the page, and the fonts are the studio's.
 Its policy allows its own scripts, styles, fonts and images, plus inline styles (the note
 colors are set as style attributes), and nothing else. `hugo server` serves the page as a plain
 file: it does not inject its live-reload script, so refresh by hand after an edit, and treat any
@@ -136,23 +138,67 @@ keyboard answers the same questions by playing the note (Web MIDI, so Chrome and
 browser asks once, and the choice is kept per device). The claude.ai copy leaves MIDI out, as it
 does the microphone.
 
+Answers can be written on a staff (`js/notation.js`: a renderer with its own clef and accidental
+paths, no font; notes spelled by scale degree from the key the app names, minor and the modes
+from the same Do). After an answer the feedback shows what sounded on a staff in the key with the
+names underneath (Preferences → The answer on a staff), rhythms as rhythmic notation on their
+intro cards and after a try, and Answer notes on → A staff makes the staff the control: the mode's
+degrees on their lines and spaces, with an Altered notes toggle where a question offers Fi or Te.
+
+Your music (the Music tab) works on a recording of the learner's own: open a file, loop a
+passage, slow it down without changing the pitch (the browser's own `preservesPitch`), hold a
+drone in its key, find Do, and mark the chords by bass note and Roman numeral. `js/music.js`
+owns the player (one audio element kept out of the rendered view, a loop held by a timer aimed
+at its end) and the analysis: the file is decoded at 11 kHz in a throwaway offline context, read
+once into a chroma vector per frame and the overview's peaks, and released; Find Do over the
+loop is then a sum of frames and Temperley's key profiles, offered as a hint the ear checks
+against the drone. The key, loop, speed, drone level and marks are kept per file in
+`tone-ladder-v1-music` on the device; the file is never stored or sent. The policy allows
+`media-src blob:` for it.
+
+Recorded instruments: `tone-ladder/samples/build.js` turns a folder of notes (C2.wav, F#2.wav …)
+into `static/tone-ladder/samples/<set>/`: trimmed, normalised, mono AAC under content-hashed
+names, each note measured after encoding (onset, loudness, cents from equal temperament; a note
+more than 30 cents off or an octave above its name is refused as mislabelled, one too short to
+measure as well), and a manifest the app reads. `js/audio.js`
+loads a set once, at boot for the chosen timbre, and plays the nearest recorded note at the rate
+that reaches the asked one; until it is ready, or on a copy without the folder, the synthesized
+sibling plays. Preferences and Explore read each set's manifest (a few hundred bytes) to learn
+which sets this copy has and offer them; the notes load once one is chosen, and a set that could
+not be fetched is tried again after fifteen seconds. The policy allows
+`connect-src 'self'` for the fetch; the service worker keeps the notes for ever (their names
+carry a hash) and the manifest network-first. The sets are not in git yet: record or bounce one
+note every minor third from C2 to C6 per instrument, run the script, commit the folder, and put
+the source and licence in the manifest (`--source`, `--licence`; they are credited under
+Instrument in Preferences). Needs ffmpeg (`brew install ffmpeg`).
+
+Progress can also travel as a link (Preferences → Move your progress → Copy a link, or Share a
+link on a phone): the export deflated and base64url-encoded in the fragment of the app's URL,
+which never reaches a server. Opening the link on another device puts the progress into the
+paste panel with the same checks as a paste. The claude.ai copy can make a link (it opens the
+site copy) but not receive one, and a copy added to an iPhone's Home Screen opens links in
+Safari, so those two still take a paste. Links need the browser's compression streams (Safari
+16.4, Chrome 103, Firefox 113 and later).
+
 The site copy works offline: `sw.js` is a service worker that keeps the page, its scripts,
 styles, fonts and icons in a cache (`tone-ladder-shell`), answering from the network first so a
-deploy is picked up on the next load, and from the cache when there is no network. Nothing else
-is cached and nothing is sent. `manifest.webmanifest` and the icons make it installable ("Add to
-Home Screen"); the policy allows the manifest with `manifest-src 'self'`. A file the page loads
-must be on the worker's list, or the offline copy breaks without it: `tone-ladder/tests/sw-check.js`
-fails when the list and the page disagree. The worker registers on `hugo server` too; it never
+deploy is picked up on the next load, and from the cache when there is no network. Recorded
+notes are kept once played; nothing else is cached and nothing is sent. `manifest.webmanifest`
+and the icons make it installable ("Add to Home Screen"); the policy allows the manifest with
+`manifest-src 'self'`. A file the page loads must be on the worker's list, or the offline copy
+breaks without it: `tone-ladder/tests/sw-check.js` fails when the list and the page disagree. The worker registers on `hugo server` too; it never
 serves a stale file while the server is up, but to be rid of it, unregister it in the browser's
 devtools. The claude.ai copy registers no worker.
 
 `tone-ladder/tests/` checks the rest of the logic in Node, without a browser: every generator at
 every level, progress and level-ups (the twenty-answer window, the two-day rule, old saves, the
 newer-format guard, device settings), export and import, that every item a level introduces turns
-up in its questions, that the notes a Sing question asks for stay in the chosen voice's range, and
-that the offline copy lists every file the page loads. Run `node tone-ladder/tests/run.js` after
-changing `theory.js`, `curriculum.js`, `store.js` or `sw.js`; it prints one line per script and
-fails if any check does.
+up in its questions, that the notes a Sing question asks for stay in the chosen voice's range,
+that the offline copy lists every file the page loads, that notation spells every degree in every
+key, that the key estimate finds the key of a plain progression, that a link carries the progress
+and that the sample build measures a note. `run.js` runs every `*-check.js` in the folder, so a
+new check cannot be forgotten. Run `node tone-ladder/tests/run.js` after changing anything in
+`js/` or `sw.js`; it prints one line per script and fails if any check does.
 
 Saved progress carries a format number (`FORMAT` in `js/store.js`). Bump it whenever the shape
 of saved data changes. A copy of the app that finds a higher number than its own (an open tab

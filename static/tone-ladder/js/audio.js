@@ -1,6 +1,6 @@
-/* Tone Ladder — audio engine. All sound is synthesized with Web Audio:
-   piano, electric piano, strings, organ and a pure tone, plus metronome clicks,
-   a rhythm voice and a tonic drone. It also opens the microphone for grading singing; that sound
+/* Tone Ladder — audio engine. Sound is synthesized with Web Audio (piano, electric piano,
+   strings, organ and a pure tone, plus metronome clicks, a rhythm voice and a tonic drone) or
+   played from recorded notes served with the page (see "recorded instruments" below). It also opens the microphone for grading singing; that sound
    is analysed in the page and never sent. The current answer's sound is held in memory until the
    next question, so the learner can save it ("Save this take") if a grade looks wrong. */
 (function (g) {
@@ -240,6 +240,118 @@
 
   const VOICES = { piano: pianoVoice, epiano: epianoVoice, strings: stringsVoice, organ: organVoice, pure: pureVoice };
 
+  // ---------- recorded instruments ----------
+  // A recorded timbre is a folder under samples/ whose manifest names one file per recorded note,
+  // with what the build script measured: where the sound starts, how loud it is, how far from
+  // equal temperament it sits. The nearest recorded note plays at the rate that reaches the asked
+  // one; a shift of a few semitones is not heard on a piano or strings. The whole set loads and
+  // decodes once, at boot for the chosen timbre, in a throwaway offline context so the live one
+  // is not created before a tap; until it is ready, or on a copy without the folder (claude.ai)
+  // or a browser that cannot decode AAC, the synthesized sibling plays instead.
+  const SAMPLED = {
+    rpiano: { label: 'Recorded piano', dir: 'samples/piano/', synth: 'piano' },
+    rstrings: { label: 'Recorded strings', dir: 'samples/strings/', synth: 'strings' },
+  };
+  const sets = {}; // name → { state: unknown | loading | ready | failed | missing, man, notes, release, source, licence, loading, retryAt }
+  const sampleSet = (name) => sets[name] || (sets[name] = { state: 'unknown', notes: [], release: 0.3, source: '', licence: '', loading: null });
+  const canAAC = () => { try { return g.document.createElement('audio').canPlayType('audio/mp4; codecs="mp4a.40.2"') !== ''; } catch (e) { return false; } };
+  const decoder = () => { const OAC = g.OfflineAudioContext || g.webkitOfflineAudioContext; return new OAC(1, 1, 44100); };
+  const final = (why) => Object.assign(new Error(why), { final: true }); // not on this copy, as opposed to not reachable now
+  const RETRY_MS = 15000; // a set that could not be fetched is tried again after this, not on every sound
+  const waiting = (set) => set.state === 'failed' && Date.now() < set.retryAt;
+  async function manifest(name) {
+    if (cfg.samples === false) throw final('not on this copy'); // the claude.ai copy has no samples folder
+    if (!canAAC()) throw final('no AAC decoder');
+    const r = await fetch(SAMPLED[name].dir + 'manifest.json');
+    if (r.status === 404) throw final('no set');
+    if (!r.ok) throw new Error(r.status);
+    const man = await r.json();
+    if (!man || !Array.isArray(man.notes) || !man.notes.length) throw final('no notes');
+    return man;
+  }
+  // tell the page only when something it shows has changed
+  const told = (name, before) => { const set = sets[name]; if (A.onSamples && (set.state !== before.state || TIMBRES[name] !== before.label)) A.onSamples(name, set.state); };
+  // Whether this copy has a set, from its manifest alone (a few hundred bytes): the selects then
+  // offer it, and its notes load only once it is chosen.
+  function probeSamples(name) {
+    const d = SAMPLED[name], set = sampleSet(name);
+    if (!d || set.man || set.state === 'ready' || set.state === 'missing' || set.loading || waiting(set)) return Promise.resolve(!!set.man || set.state === 'ready');
+    if (set.probing) return set.probing;
+    const before = { state: set.state, label: TIMBRES[name] };
+    set.probing = (async () => {
+      try { set.man = await manifest(name); TIMBRES[name] = d.label; } catch (e) { if (e && e.final) { set.state = 'missing'; delete TIMBRES[name]; } else { set.state = 'failed'; set.retryAt = Date.now() + RETRY_MS; } }
+      set.probing = null;
+      told(name, before);
+      return !!set.man;
+    })();
+    return set.probing;
+  }
+  function loadSamples(name) {
+    const d = SAMPLED[name], set = sampleSet(name);
+    if (!d || set.state === 'ready' || set.state === 'missing' || waiting(set)) return Promise.resolve(set.state === 'ready');
+    if (set.loading) return set.loading;
+    const before = { state: set.state, label: TIMBRES[name] };
+    set.state = 'loading';
+    set.loading = (async () => {
+      try {
+        const man = set.man || (await manifest(name));
+        const dec = decoder();
+        const notes = await Promise.all(man.notes.map(async (n) => {
+          const f = await fetch(d.dir + n.file);
+          if (!f.ok) throw new Error(f.status);
+          const buffer = await dec.decodeAudioData(await f.arrayBuffer());
+          return { midi: +n.midi, cents: +n.cents || 0, gain: +n.gain > 0 ? +n.gain : 1, onset: +n.onset > 0 ? +n.onset : 0, loop: Array.isArray(n.loop) && n.loop.length === 2 ? n.loop.map(Number) : null, buffer };
+        }));
+        set.notes = notes.filter((n) => Number.isFinite(n.midi)).sort((a, b) => a.midi - b.midi);
+        if (!set.notes.length) throw new Error('no notes');
+        set.release = +man.release > 0 ? +man.release : 0.3;
+        set.source = String(man.source || ''); set.licence = String(man.licence || '');
+        set.state = 'ready';
+        TIMBRES[name] = d.label; // now it can be chosen
+        pruneSamples(d.dir, man.notes.map((n) => n.file));
+      } catch (e) {
+        set.notes = []; delete TIMBRES[name];
+        if (e && e.final) set.state = 'missing';
+        else { set.state = 'failed'; set.retryAt = Date.now() + RETRY_MS; set.man = null; } // tried again later, not on every sound
+      }
+      set.loading = null;
+      told(name, before);
+      return set.state === 'ready';
+    })();
+    return set.loading;
+  }
+  // the service worker keeps every note it has served; after a set is rebuilt, the old names go
+  async function pruneSamples(dir, keep) {
+    if (!g.caches || !g.location) return;
+    try {
+      const c = await g.caches.open('tone-ladder-shell');
+      const base = new URL(dir, g.location.href).pathname;
+      for (const req of await c.keys()) {
+        const p = new URL(req.url).pathname;
+        if (p.startsWith(base) && /\.m4a$/.test(p) && !keep.includes(p.slice(base.length))) await c.delete(req);
+      }
+    } catch (e) { /* no cache here */ }
+  }
+  function sampledVoice(name) {
+    return (ac, dest, m, t, dur, vel) => {
+      const set = sets[name];
+      if (!set || set.state !== 'ready') return VOICES[SAMPLED[name].synth](ac, dest, m, t, dur, vel);
+      let n = set.notes[0];
+      for (const x of set.notes) if (Math.abs(x.midi - m) < Math.abs(n.midi - m)) n = x;
+      const src = ac.createBufferSource(); src.buffer = n.buffer; src.playbackRate.value = 2 ** ((m - n.midi - n.cents / 100) / 12);
+      const gn = ac.createGain(); gn.connect(dest);
+      const v = vel * loud(m) * 0.85 * n.gain; // the build script measured each note’s loudness; 0.85 sits the set level with the synth
+      const end = t + dur, rel = set.release;
+      gn.gain.setValueAtTime(v, t);
+      gn.gain.setValueAtTime(v, end);
+      gn.gain.linearRampToValueAtTime(0, end + rel);
+      if (n.loop) { src.loop = true; src.loopStart = n.loop[0]; src.loopEnd = n.loop[1]; }
+      src.connect(gn); src.start(t, n.onset); src.stop(end + rel + 0.05);
+      return end + rel + 0.05;
+    };
+  }
+  for (const name of Object.keys(SAMPLED)) VOICES[name] = sampledVoice(name);
+
   function scheduleEvent(ac, dest, ev, st, du, timbre) {
     if (ev.perc === 'click' || ev.perc === 'accent') return clickVoice(ac, dest, st, ev.perc === 'accent', ev.vel ?? 1);
     if (ev.perc === 'wood') return woodVoice(ac, dest, st, du, ev.vel ?? 1);
@@ -255,7 +367,14 @@
     configure(s) {
       Object.assign(cfg, s);
       if (master) master.gain.value = clamp(cfg.volume, 0, 1) * 1.1;
+      if (SAMPLED[cfg.timbre] && cfg.samples !== false) loadSamples(cfg.timbre);
     },
+    SAMPLED,
+    loadSamples,
+    probeSamples,
+    sampled: (name) => (cfg.samples === false && SAMPLED[name] ? 'missing' : sets[name] ? sets[name].state : SAMPLED[name] ? 'unknown' : 'none'), // unknown | loading | ready | failed | missing
+    samplesInfo: (name) => (sets[name] && sets[name].state === 'ready' ? { source: sets[name].source, licence: sets[name].licence } : null),
+    onSamples: null, // (name, state) → the page re-renders a select
     get ready() { return !!ctx; },
     ensure() {
       if (!ctx) {
@@ -297,6 +416,7 @@
       const t0 = ctx.currentTime + (opts.lead ?? 0.06);
       let end = t0;
       const timbre = opts.timbre || cfg.timbre;
+      if (SAMPLED[timbre] && cfg.samples !== false) loadSamples(timbre); // first use plays the synth while the files arrive
       for (const ev of events) {
         const st = t0 + ev.t * scale;
         const du = (ev.dur ?? 0.5) * scale;
@@ -352,12 +472,13 @@
       }
       groups.clear();
     },
-    droneStart(tonic) {
+    // level: 1 sits under the app's own sounds; up to 3 for a drone under a recording
+    droneStart(tonic, level = 1) {
       A.ensure();
       A.droneStop(0.2);
       const gnode = ctx.createGain(); gnode.gain.value = 0; gnode.connect(bus);
       const t = ctx.currentTime + 0.05;
-      gnode.gain.linearRampToValueAtTime(1, t + 1.2);
+      gnode.gain.linearRampToValueAtTime(clamp(level, 0, 3), t + 1.2);
       const oscs = [];
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.connect(gnode);
       [[tonic - 12, 0.05], [tonic - 5, 0.032], [tonic - 24, 0.03]].forEach(([m, amp]) => {
@@ -369,6 +490,11 @@
       });
       drone = { gnode, oscs, tonic };
       return drone;
+    },
+    droneLevel(level) {
+      if (!drone || !ctx) return;
+      drone.gnode.gain.cancelScheduledValues(ctx.currentTime);
+      drone.gnode.gain.setTargetAtTime(clamp(level, 0, 3), ctx.currentTime, 0.15);
     },
     droneStop(fade = 0.8) {
       if (!drone || !ctx) return;

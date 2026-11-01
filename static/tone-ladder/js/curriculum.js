@@ -387,6 +387,7 @@
         compare: (x) => brokenEvents(root, x, Math.min(inv, CHORD_TYPES[x].tones.length - 1)),
         explain: CHORD_TYPES[item].feel + (lv.inversions ? ` (${INV[inv]})` : ''),
         explainLabel: 'Sound',
+        root, inv, // for writing the chord on a staff
       };
     },
   };
@@ -502,7 +503,7 @@
           kind: 'choice', layout: 'grid', mode: 'major', tonic, withContext: true,
           prompt: 'After the four chords, a progression plays. Where does it end up?',
           options: lv.items.map((id) => ({ id, label: MODULATIONS[id].label })),
-          answer: item, stats: [item],
+          answer: item, stats: [item], seqLabels: seq, // the numerals, for the bass line on a staff
           audio: { main: [...ctx, ...progEvents(v, t1)], parts: { prog: progEvents(v), bass: bassEvents(v), context: ctx }, reveal: after(item) },
           replays: [{ part: 'main', label: 'Replay all', key: 'Space' }, { part: 'prog', label: 'Just the progression' }, { part: 'bass', label: 'Bass line' }],
           compare: (id) => after(id),
