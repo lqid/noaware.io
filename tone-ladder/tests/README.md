@@ -3,7 +3,7 @@
 Node checks for the logic of Tone Ladder in `static/tone-ladder/js/`: the theory, the curriculum
 and the progress store, loaded as the browser would under a fake `window`, `localStorage` and a
 clock the checks can move forward a day at a time. Plain Node: no browser, no dependencies, no
-framework.
+framework. Node 22.7 or later (the app's ES modules load without a package.json from there).
 
 ```sh
 node tone-ladder/tests/run.js                        # every script, one line each
@@ -20,7 +20,9 @@ node tone-ladder/tests/run.js path/to/tone-ladder    # another copy of the app
 | `coverage-check.js` | every item a level introduces turns up in its questions, and not rarely |
 | `sing-check.js` | the notes a Sing question asks for stay in the chosen voice's range; Find Do practice rounds sound Do; intros build |
 | `sight-check.js` | Sight-Singing: what is written is what plays and what is graded, in the voice's range and clef; melodies keep their level's start, end, leaps and chromatic notes; names and key show as the level says; every staff and introduction draws; the gates point at the Sing levels that teach the notes |
-| `sw-check.js` | the offline copy: every file the service worker precaches exists, every file the page and its styles load is on its list, requests go to the network first and to the cache when the network fails |
+| `modules-check.js` | the app's ES modules hold together: the page loads the entry module last with the import graph preloaded; every name used from another module is imported, exported and declared there, and none is declared twice; only `main.js` runs code on load; `R` changes only through `setR`; nothing uses a name of `main.js` or assigns to an import; every action table is merged once with no key twice, and every `data-act` (and every action name passed to the answer helpers) names an action; every module but `main.js` loads in Node |
+| `app-check.js` | the app runs in Node (`app-harness/trace.mjs`): every view, every track page, a long daily session, Progress, Preferences and Explore, with no error; on that path the claude.ai bundle of the modules does exactly what the modules do |
+| `sw-check.js` | the offline copy: every file the service worker precaches exists, every file the page and its styles load (and every module those import) is on its list, requests go to the network first and to the cache when the network fails |
 | `notation-check.js` | spelling by scale degree in every key and mode: a run of letters, no double accidental, nothing against the signature; the signatures match the circle of fifths; staves and rhythms render well-formed SVG for every clef, signature, value, rest, tie, chord and ledger line, and for every rhythm the curriculum makes |
 | `music-check.js` | Your music: the key estimate finds the key of a plain progression in all 24 keys; the per-file store of marks round-trips, drops junk field by field and stays at 50 files |
 | `sync-check.js` | a link carries the progress: made by the store, read back independently and through the store, and refused when cut short or not a Tone Ladder link |

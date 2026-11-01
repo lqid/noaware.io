@@ -43,7 +43,7 @@ L.status(t) -> { heard, held, done, silent }
 L.result() -> { v /* 1 | 0.5 | 0 | null */, reason, notes, graded, steps, extra, offset, drift, trace }
 ```
 
-The app feeds it about 43 ms of audio every 20 ms (`js/app.js`, `micTick`). It sets `appPlaying`
+The app feeds it about 43 ms of audio every 20 ms (`js/app/mic.js`, `micTick`). It sets `appPlaying`
 while its own notes sound, output latency included (`js/audio.js`, `playing`).
 
 ## The rules

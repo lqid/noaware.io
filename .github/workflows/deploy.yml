@@ -21,6 +21,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Tone Ladder's checks run before anything is built: its app is a set of ES modules that link as
+      # one, so a module that does not link would leave the live page blank (tone-ladder/tests/).
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check Tone Ladder
+        run: node tone-ladder/tests/run.js
+
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v3
         with:

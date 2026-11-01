@@ -7,12 +7,18 @@
 const CACHE = 'tone-ladder-shell';
 const SHELL = [
   './', 'index.html', 'app.css', 'studio.css', 'manifest.webmanifest',
-  'js/theory.js', 'js/audio.js', 'js/curriculum.js', 'js/store.js', 'js/pitch.js', 'js/take.js', 'js/take-worklet.js', 'js/notation.js', 'js/music.js', 'js/app.js',
+  'js/theory.js', 'js/audio.js', 'js/curriculum.js', 'js/store.js', 'js/pitch.js', 'js/take.js', 'js/take-worklet.js', 'js/notation.js', 'js/music.js', 'js/start-guard.js',
+  'js/app/base.js', 'js/app/state.js', 'js/app/plan.js', 'js/app/explore.js', 'js/app/method.js', 'js/app/midi.js', 'js/app/today.js', 'js/app/sing-view.js', 'js/app/prefs.js', 'js/app/track.js', 'js/app/progress.js', 'js/app/your-music.js', 'js/app/router.js', 'js/app/session.js', 'js/app/rhythm.js', 'js/app/session-view.js', 'js/app/answer.js', 'js/app/mic.js', 'js/app/answer-view.js', 'js/app/main.js',
   '/fonts/cormorant-garamond-normal-latin.woff2', '/fonts/cormorant-garamond-italic-latin.woff2', '/fonts/instrument-sans-normal-latin.woff2',
   '/favicon.svg', '/apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
 ];
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => Promise.allSettled(SHELL.map((u) => c.add(u)))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.allSettled(SHELL.map((u) => c.add(u))).then((done) => {
+    // the single-file app the modules replaced: dropped once the page that no longer loads it is
+    // cached, so an older cached page is never left without its script
+    const ok = (u) => done[SHELL.indexOf(u)].status === 'fulfilled';
+    if (ok('./') && ok('index.html')) return c.delete('js/app.js');
+  })).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith('tone-ladder-') && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

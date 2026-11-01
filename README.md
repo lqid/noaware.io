@@ -94,7 +94,8 @@ unlisted: nothing on the studio page links to it, and it carries `noindex`. All 
 | The page (markup, meta, Content Security Policy) | `static/tone-ladder/index.html` |
 | App styles | `static/tone-ladder/app.css` |
 | Studio look: fonts from `/fonts/`, paper palette | `static/tone-ladder/studio.css` |
-| The app: theory, sound, curriculum, progress, screens | `static/tone-ladder/js/` |
+| Theory, sound, curriculum, progress, pitch, takes, notation, the music player (classic scripts that set `TL.*`) | `static/tone-ladder/js/*.js` |
+| The app: one ES module per screen or concern; `main.js` wires the events and boots | `static/tone-ladder/js/app/` |
 | Offline copy and install: service worker, manifest, icons | `static/tone-ladder/sw.js`, `manifest.webmanifest`, `icon-*.png` |
 | Recorded instruments, built from a folder of notes | `static/tone-ladder/samples/<piano|strings>/` (not in git until recorded), `tone-ladder/samples/build.js` |
 
@@ -113,7 +114,7 @@ field by field on every load, so stale or hand-edited data cannot break the page
 is kept on the device (`tone-ladder-v1-plan`), so an interrupted session resumes where it stopped.
 
 The Sing track can check singing through the microphone (`js/pitch.js` hears the notes;
-`js/audio.js` opens the mic; `js/app.js` runs the flow). The sound is analysed in the page and
+`js/audio.js` opens the mic; `js/app/mic.js` runs the flow). The sound is analysed in the page and
 never sent, and the policy needs no change for it. Only the current answer's sound is kept, in
 memory until the next question: "Save this take" writes it to a WAV file on the learner's own
 computer (`js/take-worklet.js` records it, `js/take.js` writes it with what is needed to replay
@@ -127,7 +128,7 @@ synthetic singing (rooms, mics, the app's own sound through the speakers), and r
 takes; run `node tone-ladder/pitch-harness/run.js static/tone-ladder/js/pitch.js` and
 `node tone-ladder/pitch-harness/takes.js` after changing it.
 
-With the microphone on, the Rhythm track also hears claps (`clapTick` in `js/app.js`): a clap is
+With the microphone on, the Rhythm track also hears claps (`clapTick` in `js/app/rhythm.js`): a clap is
 a sudden burst well above the room and above the app's own clicks, whose loudness at the mic is
 measured during the get-ready clicks. A clap counts like a tap at its moment, so claps and taps
 mix freely. Preferences → Clap rhythms turns it off.
@@ -202,13 +203,34 @@ breaks without it: `tone-ladder/tests/sw-check.js` fails when the list and the p
 serves a stale file while the server is up, but to be rid of it, unregister it in the browser's
 devtools. The claude.ai copy registers no worker.
 
+The app's screens are ES modules in `js/app/`, loaded after the classic scripts by one
+`<script type="module" src="js/app/main.js">`, with every module preloaded. A few rules keep them
+apart, and `tone-ladder/tests/modules-check.js` enforces them: only `main.js` runs code when it
+loads (the others only declare); every name a module uses from another is imported, no name is
+declared in two modules, nothing uses a name of `main.js` (nothing can import the entry), and no
+module assigns to an import (imports are read-only); the running session `R` (in `state.js`)
+changes only through `setR`, called from `session.js`; a screen exports its view and a
+`<name>Actions` table, which `main.js` merges into the action table once. A new module goes on
+`sw.js`'s list and in `index.html`'s preloads; the worker check and the modules check fail until
+it is on both. Because the modules link as one set, one that is missing or from another deploy
+stops all of them: `js/start-guard.js`, a plain script, then shows "Tone Ladder could not start"
+with a reload button instead of an empty page, and the deploy workflow runs the checks before it
+builds, so a module that does not link never reaches the site. The page needs `hugo server` (or
+any server): modules do not load from `file://`. The modules were split from a single
+`js/app.js` by `tone-ladder/app-harness/split-app.js`: the original lines, byte for byte with their indentation, plus computed imports and an export list; four lines changed (the two places that set the running session call `setR`, and `go()` disarms the reset through `disarmReset()`), the `setR` and `disarmReset` declarations were added, and each screen's entries of the action table moved into a `<name>Actions` table that `main.js` spreads into `ACT`.
+`node tone-ladder/app-harness/split-app.js --verify` regenerates them from that commit and
+compares. `tone-ladder/app-harness/trace.mjs` runs the app in Node and prints everything it does;
+for a change meant to keep behaviour the same, compare its output before and after.
+
 `tone-ladder/tests/` checks the rest of the logic in Node, without a browser: every generator at
 every level, progress and level-ups (the twenty-answer window, the two-day rule, old saves, the
 newer-format guard, device settings), export and import, that every item a level introduces turns
 up in its questions, that the notes a Sing question asks for stay in the chosen voice's range,
 that the offline copy lists every file the page loads, that notation spells every degree in every
 key, that the key estimate finds the key of a plain progression, that a link carries the progress
-and that the sample build measures a note. `run.js` runs every `*-check.js` in the folder, so a
+that the sample build measures a note, that the app's modules hold together, and that the app
+runs every screen and a long session without an error (and its claude.ai bundle does the same on
+that path). They need Node 22.7 or later. `run.js` runs every `*-check.js` in the folder, so a
 new check cannot be forgotten. Run `node tone-ladder/tests/run.js` after changing anything in
 `js/` or `sw.js`; it prints one line per script and fails if any check does.
 
@@ -220,15 +242,20 @@ The claude.ai copy is republished by hand, so after changing levels in `curricul
 republish it too: it refuses progress from a copy with more levels than it has.
 
 The same app also runs as a private claude.ai artifact, where progress is saved to the claude.ai
-account. To update that copy, build its page and publish it with the scripts beside it:
+account. To update that copy, build its page and scripts into a folder and publish them:
 
 ```sh
-node tone-ladder/artifact.mjs /tmp/tone-ladder.html
+node tone-ladder/artifact.mjs <folder>
 ```
 
-then publish `/tmp/tone-ladder.html` with `static/tone-ladder/js/*.js` as `js/*.js`. The output
-inlines `app.css`, uses the app's original fonts from Google Fonts (which claude.ai allows),
-and leaves out the parts marked `site-only` in `index.html`.
+It writes `<folder>/tone-ladder.html` and `<folder>/js/`; publish the page with every file in
+`<folder>/js` as `js/<name>`, so nothing the copy loads is left at an older version. The page
+inlines `app.css`, uses the app's original fonts from Google Fonts (which claude.ai allows), and
+leaves out the parts marked `site-only` in `index.html`. The copy does not load the ES modules:
+`tone-ladder/app-bundle.mjs` joins them into one classic script, `js/app.js`, in the order the
+browser would run them (the single-file app they came from), since the claude.ai host is not
+known to serve modules; `app-check.js` keeps it doing what the modules do on every path its trace
+drives.
 
 ## Fonts
 
