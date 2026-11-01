@@ -13,12 +13,14 @@ const SHELL = [
   '/favicon.svg', '/apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
 ];
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => Promise.allSettled(SHELL.map((u) => c.add(u))).then((done) => {
-    // the single-file app the modules replaced: dropped once the page that no longer loads it is
-    // cached, so an older cached page is never left without its script
-    const ok = (u) => done[SHELL.indexOf(u)].status === 'fulfilled';
-    if (ok('./') && ok('index.html')) return c.delete('js/app.js');
-  })).then(() => self.skipWaiting()));
+  // past the browser's HTTP cache (GitHub Pages lets it keep a file ten minutes), so the shell, and
+  // the modules that must link as one set, come from the deploy that shipped this worker
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.allSettled(SHELL.map((u) => c.add(new Request(u, { cache: 'reload' })))).then(() =>
+    // the single-file app the modules replaced: dropped only once every page cached loads the
+    // modules instead, so no cached page is left without its script
+    c.keys().then((keys) => Promise.all(keys.filter((r) => /\/tone-ladder\/(index\.html)?(\?.*)?$/.test(r.url)).map((r) => c.match(r).then((res) => (res ? res.text() : '')))))
+      .then((pages) => (pages.length && pages.every((t) => t.includes('js/app/main.js') && !t.includes('src="js/app.js"')) ? c.delete('js/app.js') : null))
+  )).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith('tone-ladder-') && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
@@ -39,6 +41,7 @@ self.addEventListener('fetch', (e) => {
     fetch(req).then((res) => {
       if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
       return res;
-    }).catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || (req.mode === 'navigate' ? caches.match('./') : undefined)))
+    // offline, a page request gets the app's own page first, whatever URL it was cached under
+    }).catch(() => (req.mode === 'navigate' ? caches.match('./') : Promise.resolve(undefined)).then((page) => page || caches.match(req, { ignoreSearch: true })))
   );
 });

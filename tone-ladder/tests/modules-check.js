@@ -17,6 +17,9 @@ const fail = (m) => { bad++; if (bad <= 40) console.log(m); };
 const CLASSIC = ['theory.js', 'audio.js', 'curriculum.js', 'store.js', 'pitch.js', 'take.js', 'notation.js', 'music.js', 'start-guard.js'];
 const IMPORT = /^import \{([^}]*)\} from '\.\/([\w-]+\.js)';$/;
 const isOpen = (t) => t.t === 'p' && ['(', '[', '{'].includes(t.v), isClose = (t) => t.t === 'p' && [')', ']', '}'].includes(t.v);
+const NOT_END = new Set(['typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'await', 'yield', 'async', 'return', 'else', 'case', 'do', 'throw']);
+const endsExpr = (t) => (t.t === 'id' && !NOT_END.has(t.v)) || ['num', 'str', 're'].includes(t.t) || (t.t === 'tpl' && t.tail) || (t.t === 'p' && [')', ']', '}', '++', '--'].includes(t.v));
+const startsExpr = (t) => (t.t === 'id' && !['in', 'of', 'instanceof'].includes(t.v)) || ['num', 'str', 're'].includes(t.t) || (t.t === 'tpl' && t.head);
 // the names a const/let/var at token k declares: every declarator, plain or a { } / [ ] pattern
 function declNames(toks, k) {
   const out = [];
@@ -80,14 +83,19 @@ for (const f of files) {
   // top-level declarations, and (outside main.js) only declarations at the top level; each top-level
   // statement's token range, so a local of the same name as another module's can be told apart
   const toks = tokenize(src).filter((t) => t.t !== 'cmt');
-  m.toks = toks; m.scopes = [];
-  let depth = 0, start = true, kind = null, from = 0;
-  const end = (k) => { m.scopes.push([from, k]); start = true; kind = null; };
+  m.toks = toks;
+  let depth = 0, start = true, kind = null;
+  const end = () => { start = true; kind = null; };
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];
+    // a declaration with no ; that runs on to the next line: the next line is a new statement
+    if (depth === 0 && !start && kind === 'binding' && k && t.line > toks[k - 1].line && endsExpr(toks[k - 1]) && startsExpr(t)) {
+      fail(`${f}:${toks[k - 1].line}: a top-level declaration that does not end with ;`);
+      end(k - 1);
+    }
     if (depth === 0 && start) {
       if (t.t === 'p' && t.v === ';') continue;
-      start = false; from = k;
+      start = false;
       if (t.t === 'id' && (t.v === 'import' || t.v === 'export')) kind = 'module';
       else if (t.t === 'id' && (t.v === 'function' || (t.v === 'async' && toks[k + 1].v === 'function'))) {
         kind = 'function';
@@ -119,44 +127,54 @@ for (const f of files) {
     if (isClose(t)) {
       depth--;
       if (depth === 0 && t.v === '}' && kind === 'function') end(k);
-      else if (depth === 0 && t.v === '}' && kind === 'binding') {
-        // a declaration that ends in } with no ; would run on into the next statement's line
-        const n = toks[k + 1];
-        if (n && n.line > t.line && !(n.t === 'p' && [';', ',', '.', '?.', ')', ']', '(', '['].includes(n.v))) { fail(`${f}:${t.line}: a top-level declaration that does not end with ;`); end(k); }
-      }
       continue;
     }
     if (depth === 0 && t.t === 'p' && t.v === ';') end(k);
   }
   if (!start) end(toks.length - 1);
-  // inside each top-level statement, the names declared locally: const/let/var names (and the names
-  // in their patterns), inner function names, parameters, arrow parameters, catch bindings
-  m.locals = m.scopes.map(([a, b]) => {
-    const names = new Set();
-    for (let k = a + 1; k <= b; k++) {
-      const t = toks[k], p = toks[k - 1], n = toks[k + 1];
-      if (t.t === 'id' && ['const', 'let', 'var'].includes(t.v)) { declNames(toks, k).forEach((x) => names.add(x)); continue; }
-      if (t.t !== 'id' || KEYWORDS.has(t.v)) continue;
-      if (p && p.t === 'id' && p.v === 'function') { names.add(t.v); continue; }
-      if (n && n.t === 'p' && n.v === '=>' ) { names.add(t.v); continue; }
-      // in a pattern or a parameter list: preceded by ( , { [ ... and followed by , ) = } ]
-      if (p && p.t === 'p' && ['(', ',', '{', '[', '...'].includes(p.v) && n && n.t === 'p' && [',', ')', '=', '}', ']'].includes(n.v)) {
-        // only where the bracket opens a parameter list, a pattern after const/let/var, or a catch
-        // the bracket that encloses it, climbing out of nested patterns ([a, b] or {a, b} inside the list)
-        let q = k - 1, d = 0;
-        for (; q > a; q--) { const w = toks[q]; if (isClose(w)) d++; else if (isOpen(w)) { if (d === 0) { if (w.v !== '(' && toks[q - 1] && toks[q - 1].t === 'p' && ['(', ',', '[', '{'].includes(toks[q - 1].v)) continue; break; } d--; } }
-        const opener = toks[q], before = toks[q - 1];
-        let r = q, dd = 0;
-        for (; r <= b; r++) { const w = toks[r]; if (isOpen(w)) dd++; else if (isClose(w)) { dd--; if (dd === 0) break; } }
-        const after = toks[r + 1];
-        const params = opener && opener.v === '(' && ((before && (before.t === 'id' && (before.v === 'function' || before.v === 'catch' || toks[q - 2] && toks[q - 2].v === 'function'))) || (after && after.v === '=>') || (after && after.v === '{' && before && before.t === 'id'));
-        const pattern = before && before.t === 'id' && ['const', 'let', 'var'].includes(before.v);
-        if (params || pattern) names.add(t.v);
-      }
+  // every local: its name and the token range where it is visible (a const, let or var, or an inner
+  // function's name, in its enclosing block, or its for head and loop; a parameter in its function)
+  const match = new Array(toks.length).fill(-1), stack = [];
+  toks.forEach((t, i) => { if (isOpen(t)) stack.push(i); else if (isClose(t)) { const j = stack.pop(); if (j != null) { match[i] = j; match[j] = i; } } });
+  const enclosing = (k) => { let d = 0; for (let q = k - 1; q >= 0; q--) { const w = toks[q]; if (isClose(w)) d++; else if (isOpen(w)) { if (d === 0) return q; d--; } } return -1; };
+  const exprEnd = (k) => { let d = 0; for (let q = k; q < toks.length; q++) { const w = toks[q]; if (isOpen(w)) d++; else if (isClose(w)) { if (d === 0) return q - 1; d--; } else if (d === 0 && w.t === 'p' && (w.v === ',' || w.v === ';')) return q - 1; } return toks.length - 1; };
+  const afterHead = (close) => { const n = toks[close + 1]; if (!n) return close; if (n.v === '{') return match[close + 1]; if (n.v === '=>') { const b = toks[close + 2]; return b && b.v === '{' ? match[close + 2] : exprEnd(close + 2); } return exprEnd(close + 1); };
+  const L = [];
+  const params = (open) => { // the names bound in a parameter list, visible to the end of its body
+    const close = match[open], last = afterHead(close);
+    for (let q = open + 1; q < close; q++) {
+      const w = toks[q], p = toks[q - 1], n = toks[q + 1];
+      if (w.t === 'id' && !KEYWORDS.has(w.v) && p && p.t === 'p' && ['(', ',', '{', '[', '...', ':'].includes(p.v) && n && n.t === 'p' && [',', ')', '=', '}', ']'].includes(n.v)) L.push([w.v, open, last]);
     }
-    return names;
-  });
-  m.localAt = (k, nm) => m.scopes.some(([a, b], i) => k >= a && k <= b && m.locals[i].has(nm));
+  };
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k], p = toks[k - 1], n = toks[k + 1];
+    if (t.t === 'id' && ['const', 'let', 'var'].includes(t.v)) {
+      const enc = enclosing(k);
+      if (enc < 0) continue; // top level: a module's own names
+      const forHead = toks[enc].v === '(' && toks[enc - 1] && toks[enc - 1].v === 'for';
+      const [a, b] = forHead ? [enc, afterHead(match[enc])] : [enc, match[enc]];
+      declNames(toks, k).forEach((x) => L.push([x, a, b]));
+      continue;
+    }
+    if (t.t === 'id' && t.v === 'function') {
+      const nameTok = n && n.t === 'id' ? n : null;
+      const open = nameTok ? k + 2 : k + 1;
+      if (nameTok) { const enc = enclosing(k); if (enc >= 0) L.push([nameTok.v, enc, match[enc]]); }
+      if (toks[open] && toks[open].v === '(') params(open);
+      continue;
+    }
+    if (t.t === 'p' && t.v === '(' && match[k] > 0) {
+      const after = toks[match[k] + 1];
+      const catchHead = p && p.v === 'catch';
+      const arrow = after && after.v === '=>';
+      const method = after && after.v === '{' && p && p.t === 'id' && !KEYWORDS.has(p.v) && (toks[k - 2] && toks[k - 2].t === 'p' && ['{', ','].includes(toks[k - 2].v) || (toks[k - 2] && ['get', 'set', 'async', 'static'].includes(toks[k - 2].v)));
+      if (catchHead || arrow || method) params(k);
+      continue;
+    }
+    if (t.t === 'id' && !KEYWORDS.has(t.v) && n && n.v === '=>') { const b = toks[k + 2]; L.push([t.v, k, b && b.v === '{' ? match[k + 2] : exprEnd(k + 2)]); }
+  }
+  m.localAt = (k, nm) => L.some(([x, a, b]) => x === nm && k >= a && k <= b);
   // identifiers used: not a property after a dot, not a key in an object literal, not on an import or export line
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];
@@ -209,7 +227,21 @@ for (const m of Object.values(M)) {
     if (t.t !== 'id' || !imported.has(t.v) || m.localAt(k, t.v)) return;
     const p = m.toks[k - 1], n = m.toks[k + 1];
     if (p && (p.v === '.' || p.v === '?.' || ['const', 'let', 'var'].includes(p.v))) return;
-    const assigned = (n && n.t === 'p' && (ASSIGN.has(n.v) || n.v === '++' || n.v === '--')) || (p && p.t === 'p' && (p.v === '++' || p.v === '--') && !(n && n.t === 'p' && (n.v === '.' || n.v === '[')));
+    let assigned = (n && n.t === 'p' && (ASSIGN.has(n.v) || n.v === '++' || n.v === '--')) || (p && p.t === 'p' && (p.v === '++' || p.v === '--') && !(n && n.t === 'p' && (n.v === '.' || n.v === '[')));
+    // for (x of …) / for (x in …)
+    if (p && p.v === '(' && m.toks[k - 2] && m.toks[k - 2].v === 'for' && n && (n.v === 'of' || n.v === 'in')) assigned = true;
+    // [x, y] = … or ({ x } = …): a target inside a pattern that is assigned to
+    if (!assigned && !(n && n.v === ':') && p && p.t === 'p' && ['[', '{', ','].includes(p.v)) {
+      let d = 0, q = k - 1;
+      for (; q >= 0; q--) { const w = m.toks[q]; if (isClose(w)) d++; else if (isOpen(w)) { if (d === 0) break; d--; } }
+      const opener = m.toks[q];
+      // a pattern, not a computed member (x[i]) or a block: nothing that ends an expression before it
+      if (opener && (opener.v === '[' || opener.v === '{') && !(m.toks[q - 1] && (['const', 'let', 'var'].includes(m.toks[q - 1].v) || endsExpr(m.toks[q - 1])))) {
+        let dd = 0, r = q;
+        for (; r < m.toks.length; r++) { const w = m.toks[r]; if (isOpen(w)) dd++; else if (isClose(w)) { dd--; if (dd === 0) break; } }
+        if (m.toks[r + 1] && m.toks[r + 1].t === 'p' && m.toks[r + 1].v === '=') assigned = true;
+      }
+    }
     if (assigned) fail(`${m.f}:${t.line}: assigns to ${t.v}, imported from ${imported.get(t.v)}: imports are read-only; change it through a function in its own module`);
   });
 }
@@ -259,7 +291,7 @@ for (const src of [html, ...Object.values(M).map((m) => m.src)]) {
   try {
     for (const f of CLASSIC) vm.runInThisContext(fs.readFileSync(path.join(dir, 'js', f), 'utf8'), { filename: f });
     for (const f of [...closure].filter((x) => x !== 'main.js')) await import(pathToFileURL(path.join(appDir, f)).href);
-  } catch (e) { fail('a module failed to load: ' + String(e && e.message || e)); }
+  } catch (e) { fail('a module failed to load: ' + String(e && e.stack || e).split('\n').slice(0, 2).join(' | ')); }
   console.log(bad ? `${bad} problems` : `modules OK (${files.length} modules, ${declaredIn.size} names, ${actKeys.size} actions)`);
   process.exitCode = bad ? 1 : 0;
 })();

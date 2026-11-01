@@ -18,17 +18,20 @@ const href = (u, ignoreSearch) => { const x = new URL(typeof u === 'string' ? u 
 const onDisk = (u) => { const p = new URL(u).pathname; return p.startsWith('/tone-ladder/') ? path.join(dir, p.slice('/tone-ladder/'.length) || 'index.html') : path.join(site, p); };
 let online = true;
 const fetched = [];
+let stalePage = null; // what the network (or the HTTP cache) answers for the page, when set
 const fetch = async (req) => {
   if (!online) throw new TypeError('offline');
   const u = href(req); fetched.push(u);
+  if (stalePage && /\/tone-ladder\/$/.test(u)) return { ok: true, status: 200, url: u, from: 'stale', text: async () => stalePage, clone() { return this; } };
   const ok = /\/samples\//.test(u) || (fs.existsSync(onDisk(u)) && fs.statSync(onDisk(u)).isFile()); // recorded notes are not in the repo
-  return { ok, status: ok ? 200 : 404, url: u, from: 'network', clone() { return this; } };
+  return { ok, status: ok ? 200 : 404, url: u, from: 'network', text: async () => fs.readFileSync(onDisk(u), 'utf8'), clone() { return this; } };
 };
+class Request { constructor(u, o = {}) { this.url = href(u); this.cache = o.cache; } }
 const stores = new Map();
 const mkCache = () => {
   const m = new Map();
   const match = (req, o = {}) => { const k = href(req, o.ignoreSearch); for (const [u, r] of m) if ((o.ignoreSearch ? href(u, true) : u) === k) return r; return undefined; };
-  return { add: async (u) => { const r = await fetch({ url: href(u) }); if (!r.ok) throw new TypeError('add failed ' + u); m.set(href(u), r); }, put: async (req, res) => { m.set(href(req), res); }, delete: async (req) => m.delete(href(req)), match: async (req, o) => match(req, o), keys: async () => [...m.keys()] };
+  return { add: async (u) => { if (typeof u === 'object' && u.cache !== 'reload') fails.push('a shell file was precached through the HTTP cache: ' + u.url); const r = await fetch({ url: href(u) }); if (!r.ok) throw new TypeError('add failed ' + href(u)); m.set(href(u), r); }, put: async (req, res) => { m.set(href(req), res); }, delete: async (req) => m.delete(href(req)), match: async (req, o) => match(req, o), keys: async () => [...m.keys()].map((url) => ({ url })) };
 };
 const caches = {
   open: async (n) => { if (!stores.has(n)) stores.set(n, mkCache()); return stores.get(n); },
@@ -38,7 +41,8 @@ const caches = {
 };
 const listeners = {}, flags = {};
 const self = { addEventListener: (t, fn) => { listeners[t] = fn; }, skipWaiting: async () => { flags.skip = true; }, clients: { claim: async () => { flags.claim = true; } }, location: new URL(BASE + 'sw.js') };
-vm.runInNewContext(src, { self, caches, fetch, URL, console }, { filename: 'sw.js' });
+const fails = [];
+vm.runInNewContext(src, { self, caches, fetch, URL, Request, console }, { filename: 'sw.js' });
 const tick = () => new Promise((r) => setImmediate(r));
 
 (async () => {
@@ -51,10 +55,26 @@ const tick = () => new Promise((r) => setImmediate(r));
   await pending;
   const shell = stores.get('tone-ladder-shell');
   if (!shell) fail('install made no cache');
-  const have = new Set(shell ? await shell.keys() : []);
+  const have = new Set(shell ? (await shell.keys()).map((r) => r.url) : []);
   for (const u of SHELL) if (!have.has(href(u))) fail(`not cached (missing on disk?): ${u} → ${onDisk(href(u))}`);
   if (!flags.skip) fail('install does not skip waiting');
   if (await shell.match(BASE + 'js/app.js')) fail('the single-file js/app.js of before the split stayed in the cache');
+  fails.forEach(fail);
+  // but not while a cached page still loads it: the network (or the HTTP cache) gave the old page
+  {
+    const before = new Map(stores); stores.clear();
+    const c = await caches.open('tone-ladder-shell');
+    await c.put(BASE + 'js/app.js', { ok: true, url: BASE + 'js/app.js', clone() { return this; } });
+    stalePage = '<script src="js/app.js"></script>';
+    let p; listeners.install({ waitUntil: (x) => { p = x; } }); await p;
+    if (!(await c.match(BASE + 'js/app.js'))) fail('js/app.js was dropped while a cached page still loads it');
+    // nor while an old page sits under a URL with a query
+    stalePage = null;
+    await c.put(BASE + '?from=home', { ok: true, url: BASE + '?from=home', text: async () => '<script src="js/app.js"></script>', clone() { return this; } });
+    listeners.install({ waitUntil: (x) => { p = x; } }); await p;
+    if (!(await c.match(BASE + 'js/app.js'))) fail('js/app.js was dropped while a page cached under a query still loads it');
+    stores.clear(); for (const [k, v] of before) stores.set(k, v);
+  }
 
   // the page and its styles load nothing that is not on the list
   const refs = [];
@@ -118,6 +138,10 @@ const tick = () => new Promise((r) => setImmediate(r));
   if (!r.res || r.res !== cachedApp) fail('offline request not answered from the cache');
   r = await ask({ url: BASE + 'practice?set=3', mode: 'navigate' });
   if (!r.res || r.res.url !== BASE) fail('offline page request did not fall back to the app page');
+  // an old copy of the page cached under a query is not what an offline page request gets
+  await shell.put(BASE + '?from=home', { ok: true, url: BASE + '?from=home', from: 'old', clone() { return this; } });
+  r = await ask({ url: BASE + '?from=home', mode: 'navigate' });
+  if (!r.res || r.res.url !== BASE) fail('an offline page request got a copy cached under a query, not the app page');
   r = await ask({ url: BASE + 'takes/x.wav' });
   if (r.res !== undefined) fail('an unknown offline request was answered');
   // recorded notes: fetched once, then from the cache, online or not

@@ -212,9 +212,11 @@ module assigns to an import (imports are read-only); the running session `R` (in
 changes only through `setR`, called from `session.js`; a screen exports its view and a
 `<name>Actions` table, which `main.js` merges into the action table once. A new module goes on
 `sw.js`'s list and in `index.html`'s preloads; the worker check and the modules check fail until
-it is on both. Because the modules link as one set, one that is missing or from another deploy
-stops all of them: `js/start-guard.js`, a plain script, then shows "Tone Ladder could not start"
-with a reload button instead of an empty page, and the deploy workflow runs the checks before it
+it is on both. Because the modules link as one set, one that is missing, or from another deploy
+whose imports or exports no longer match, stops all of them (one that still matches runs beside
+the new ones): `js/start-guard.js`, a plain script, then shows "Tone Ladder could not start" with
+a reload button instead of an empty page. The worker precaches past the browser's HTTP cache, so
+its copy of the modules comes from one deploy, and the deploy workflow runs the checks before it
 builds, so a module that does not link never reaches the site. The page needs `hugo server` (or
 any server): modules do not load from `file://`. The modules were split from a single
 `js/app.js` by `tone-ladder/app-harness/split-app.js`: the original lines, byte for byte with their indentation, plus computed imports and an export list; four lines changed (the two places that set the running session call `setR`, and `go()` disarms the reset through `disarmReset()`), the `setR` and `disarmReset` declarations were added, and each screen's entries of the action table moved into a `<name>Actions` table that `main.js` spreads into `ACT`.
@@ -227,7 +229,7 @@ every level, progress and level-ups (the twenty-answer window, the two-day rule,
 newer-format guard, device settings), export and import, that every item a level introduces turns
 up in its questions, that the notes a Sing question asks for stay in the chosen voice's range,
 that the offline copy lists every file the page loads, that notation spells every degree in every
-key, that the key estimate finds the key of a plain progression, that a link carries the progress
+key, that the key estimate finds the key of a plain progression, that a link carries the progress,
 that the sample build measures a note, that the app's modules hold together, and that the app
 runs every screen and a long session without an error (and its claude.ai bundle does the same on
 that path). They need Node 22.7 or later. `run.js` runs every `*-check.js` in the folder, so a
@@ -252,9 +254,9 @@ It writes `<folder>/tone-ladder.html` and `<folder>/js/`; publish the page with 
 `<folder>/js` as `js/<name>`, so nothing the copy loads is left at an older version. The page
 inlines `app.css`, uses the app's original fonts from Google Fonts (which claude.ai allows), and
 leaves out the parts marked `site-only` in `index.html`. The copy does not load the ES modules:
-`tone-ladder/app-bundle.mjs` joins them into one classic script, `js/app.js`, in the order the
-browser would run them (the single-file app they came from), since the claude.ai host is not
-known to serve modules; `app-check.js` keeps it doing what the modules do on every path its trace
+`tone-ladder/app-bundle.mjs` joins them, in the order the browser would run them, into one
+classic script, `js/app.js`, built like the single-file app they came from, since the claude.ai
+host is not known to serve modules; `app-check.js` keeps it doing what the modules do on every path its trace
 drives.
 
 ## Fonts

@@ -1,7 +1,7 @@
 // The app's ES modules (static/tone-ladder/js/app/) as one classic script, for the claude.ai copy,
 // whose host is not known to serve modules. The modules are joined in ES-module evaluation order
 // (a depth-first walk from main.js over the imports, in source order) inside one strict function,
-// which is the single-file app.js they were split from, with the import and export lines dropped.
+// with the import and export lines dropped: built like the single-file app.js they were split from.
 //   node tone-ladder/app-bundle.mjs <out.js>
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

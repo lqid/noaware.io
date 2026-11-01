@@ -2,8 +2,8 @@
 // randomness and a virtual clock; drives every view, every track page, a long daily session,
 // Progress, Preferences and Explore through the document listeners; and prints every observable
 // effect (DOM writes, sounds asked for, saved data, timers, the session) as JSON lines. Two builds
-// that behave the same print the same lines. Errors print as listener-error, timer-error or
-// load-error lines.
+// that behave the same print the same lines. Errors print as listener-error, timer-error,
+// rejection-error, load-error or run-error lines, with where they happened.
 //   node tone-ladder/app-harness/trace.mjs modules [static/tone-ladder]     the ES modules (js/app/)
 //   node tone-ladder/app-harness/trace.mjs bundle [static/tone-ladder]      the claude.ai bundle of them
 //   node tone-ladder/app-harness/trace.mjs classic <static/tone-ladder>     a single-file js/app.js, as before the split
@@ -19,6 +19,12 @@ if (!['modules', 'bundle', 'classic'].includes(mode)) { console.error('usage: tr
 const out = [];
 const log = (...a) => out.push(JSON.stringify(a));
 const realSetImmediate = setImmediate;
+// what went wrong, then where: the first line of the stack that names a file
+const where = (e) => { const st = String(e && e.stack || '').split('\n'); const loc = st.find((l) => /file:\/\/|\bat /.test(l)) || ''; return [String(e && e.message || e), loc.trim()].filter(Boolean).join(' | '); };
+// as in a browser, a promise nobody catches is reported and the app carries on; anything else that
+// escapes still prints what was recorded before it
+process.on('unhandledRejection', (e) => log('rejection-error', where(e)));
+process.on('uncaughtException', (e) => { log('run-error', where(e)); process.stdout.write(out.join('\n') + '\n'); process.exit(1); });
 
 // ---- seeded randomness and a virtual clock
 let seed = 12345;
@@ -111,7 +117,9 @@ const key = (k, code, more = {}) => dispatch('keydown', { type: 'keydown', key: 
 
 // ---- the classic modules, then a fake audio module in place of TL.Audio
 const js = path.join(root, 'js');
-for (const f of ['theory.js', 'audio.js', 'curriculum.js', 'store.js', 'pitch.js', 'take.js', 'notation.js', 'music.js']) vm.runInThisContext(fs.readFileSync(path.join(js, f), 'utf8'), { filename: f });
+try {
+  for (const f of ['theory.js', 'audio.js', 'curriculum.js', 'store.js', 'pitch.js', 'take.js', 'notation.js', 'music.js']) vm.runInThisContext(fs.readFileSync(path.join(js, f), 'utf8'), { filename: f });
+} catch (e) { log('load-error', where(e)); process.stdout.write(out.join('\n') + '\n'); process.exit(1); }
 const TL = globalThis.TL, real = TL.Audio;
 const plays = new Set();
 const round = (x) => (typeof x === 'number' ? Math.round(x * 1000) / 1000 : x);
@@ -146,7 +154,7 @@ try {
   if (mode === 'classic') vm.runInThisContext(fs.readFileSync(path.join(js, 'app.js'), 'utf8'), { filename: 'app.js' });
   else if (mode === 'bundle') vm.runInThisContext(bundleApp(path.join(js, 'app')).code, { filename: 'app-bundle.js' });
   else await import(pathToFileURL(path.join(js, 'app', 'main.js')).href);
-} catch (e) { log('load-error', String(e && e.message || e)); }
+} catch (e) { log('load-error', where(e)); }
 // whatever happens from here, everything recorded is printed: a failure shows what led to it
 try {
 await advance(10);
@@ -195,5 +203,5 @@ await act({ act: 'go', view: 'prefs' }); await act({ act: 'resetArm' }); await a
 await act({ act: 'exportProgress' }); snap('export');
 await act({ act: 'go', view: 'explore' }); for (const a of [{ act: 'exChord', rn: 'IV' }, { act: 'exChord', rn: 'V7' }, { act: 'exNote', id: '4', semi: '5' }, { act: 'exDir', dir: 'd' }, { act: 'exInterval', iv: 'P5' }, { act: 'exReplayTrail' }, { act: 'exDrone' }, { act: 'exMode', mode: 'minor' }]) { await act(a); await advance(500); }
 snap('explore');
-} catch (e) { log('run-error', String(e && e.message || e)); process.exitCode = 1; }
+} catch (e) { log('run-error', where(e)); process.exitCode = 1; }
 process.stdout.write(out.join('\n') + '\n');

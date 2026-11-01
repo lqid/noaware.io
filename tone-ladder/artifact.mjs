@@ -8,16 +8,17 @@
 // everything the copy loads. Publish the page with every file in <folder>/js as js/<name>, so
 // nothing the copy needs is left at an older version.
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, copyFileSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bundleApp } from './app-bundle.mjs';
 
 const outDir = process.argv[2];
 if (!outDir || /\.html?$/.test(outDir)) { console.error('usage: node tone-ladder/artifact.mjs <folder>   (it writes <folder>/tone-ladder.html and <folder>/js/)'); process.exit(1); }
 const out = join(outDir, 'tone-ladder.html'), outJs = join(outDir, 'js');
-rmSync(outJs, { recursive: true, force: true });
-mkdirSync(outJs, { recursive: true });
 const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'static', 'tone-ladder');
+// never inside the site: the copy's js/ would land on (and replace) the app's own scripts
+const site = resolve(dir, '..');
+if (resolve(outDir) === site || resolve(outDir).startsWith(site + sep)) { console.error('write the copy outside static/, for example in a scratch folder'); process.exit(1); }
 const page = readFileSync(join(dir, 'index.html'), 'utf8');
 const css = readFileSync(join(dir, 'app.css'), 'utf8');
 let body = page.slice(page.indexOf('<body>') + '<body>'.length, page.indexOf('</body>'))
@@ -27,7 +28,11 @@ const MODULE = '<script type="module" src="js/app/main.js"></script>';
 if (body.split(MODULE).length !== 2) throw new Error('the page does not load js/app/main.js exactly once');
 body = body.replace(MODULE, '<script src="js/app.js"></script>');
 if (/type="module"/.test(body)) throw new Error('a module script is left in the artifact');
-writeFileSync(join(outJs, 'app.js'), bundleApp(join(dir, 'js', 'app')).code);
+const bundle = bundleApp(join(dir, 'js', 'app')).code;
+// everything checked: now the folder's scripts are replaced (only its .js files, nothing else)
+mkdirSync(outJs, { recursive: true });
+for (const f of readdirSync(outJs)) if (f.endsWith('.js')) rmSync(join(outJs, f));
+writeFileSync(join(outJs, 'app.js'), bundle);
 // the classic scripts, and the worklet audio.js loads by name
 for (const f of readdirSync(join(dir, 'js'))) if (f.endsWith('.js')) copyFileSync(join(dir, 'js', f), join(outJs, f));
 for (const m of body.matchAll(/<script src="([^"]+)"/g)) if (!existsSync(join(outDir, m[1]))) throw new Error(`the artifact loads ${m[1]}, which the folder does not have`);
