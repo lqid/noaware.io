@@ -193,6 +193,21 @@ site copy) but not receive one, and a copy added to an iPhone's Home Screen open
 Safari, so those two still take a paste. Links need the browser's compression streams (Safari
 16.4, Chrome 103, Firefox 113 and later).
 
+Progress → Week by week charts one track at a time over twelve rolling weeks, the last ending
+today (`S.weekly` in `js/store.js`, drawn as SVG in `js/app/progress.js`): accuracy for every
+track, the time to a right answer for Degrees, Intervals, Chords and Harmony (not Melody, whose
+time can include singing the melody back), and intonation for Sing and Sight-Singing. A week sums
+its answers rather than averaging its days, and becomes a point only with enough of them: 20
+answers, 10 timed right answers, or 8 sung answers the microphone checked. Practice rounds never
+count, and an answer given while the question is still sounding counts as answered in no time. A
+dashed line marks each new level and the line breaks there, and the sentence under a chart never
+calls a step back after a new level a decline. Hover or tap a week for its numbers; a table under
+the charts holds them all. For this each day keeps, per track, the times of its right answers
+(`rt`, in tenths of a second, at most 15 s each) and how far off its sung answers were (`cl`, in
+cents), for half a year, while the rest of the log keeps its last 420 days of practice. Adding
+them bumped the save format to 8; days from before then have neither, so those two charts start
+from the update.
+
 The site copy works offline: `sw.js` is a service worker that keeps the page, its scripts,
 styles, fonts and icons in a cache (`tone-ladder-shell`), answering from the network first so a
 deploy is picked up on the next load, and from the cache when there is no network. Recorded
@@ -220,8 +235,8 @@ its copy of the modules comes from one deploy, and the deploy workflow runs the 
 builds, so a module that does not link never reaches the site. The page needs `hugo server` (or
 any server): modules do not load from `file://`. The modules were split from a single
 `js/app.js` by `tone-ladder/app-harness/split-app.js`: the original lines, byte for byte with their indentation, plus computed imports and an export list; four lines changed (the two places that set the running session call `setR`, and `go()` disarms the reset through `disarmReset()`), the `setR` and `disarmReset` declarations were added, and each screen's entries of the action table moved into a `<name>Actions` table that `main.js` spreads into `ACT`.
-`node tone-ladder/app-harness/split-app.js --verify` regenerates them from that commit and
-compares. `tone-ladder/app-harness/trace.mjs` runs the app in Node and prints everything it does;
+`node tone-ladder/app-harness/split-app.js --verify` regenerates them from `js/app.js` as of
+b1d424d and compares them with `js/app/` as the split committed it (52f93e9). `tone-ladder/app-harness/trace.mjs` runs the app in Node and prints everything it does;
 for a change meant to keep behaviour the same, compare its output before and after.
 
 `tone-ladder/tests/` checks the rest of the logic in Node, without a browser: every generator at
@@ -230,6 +245,8 @@ newer-format guard, device settings), export and import, that every item a level
 up in its questions, that the notes a Sing question asks for stay in the chosen voice's range,
 that the offline copy lists every file the page loads, that notation spells every degree in every
 key, that the key estimate finds the key of a plain progression, that a link carries the progress,
+that a long history still makes a short enough link, what the weekly charts are built from (each
+answer's share of the day, the minimums, weeks across the clock changes, the half-year trim),
 that the sample build measures a note, that the app's modules hold together, and that the app
 runs every screen and a long session without an error (and its claude.ai bundle does the same on
 that path). They need Node 22.7 or later. `run.js` runs every `*-check.js` in the folder, so a
@@ -241,7 +258,8 @@ of saved data changes. A copy of the app that finds a higher number than its own
 from before a deploy, or the claude.ai copy before it is republished) then leaves that progress
 alone and asks for a reload, instead of cleaning it down to the old shape and saving over it.
 The claude.ai copy is republished by hand, so after changing levels in `curriculum.js`,
-republish it too: it refuses progress from a copy with more levels than it has.
+republish it too: it refuses progress from a copy with more levels than it has. After a format
+bump, republish it the same day, since until then it refuses progress pasted from the site.
 
 The same app also runs as a private claude.ai artifact, where progress is saved to the claude.ai
 account. To update that copy, build its page and scripts into a folder and publish them:

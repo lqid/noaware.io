@@ -7,7 +7,7 @@
   const LS_KEY = 'tone-ladder-v1';
   // The saved-data format. A copy of the app that finds a higher number was written by newer code:
   // it leaves that progress alone (no cleaning, no saving) and asks for a reload.
-  const FORMAT = 7; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap; 6: notation, input staff; 7: the Sight-Singing track
+  const FORMAT = 8; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap; 6: notation, input staff; 7: the Sight-Singing track; 8: answer times and intonation per day
   // Settings that belong to one device (latency calibration, loudness, tempo) and never travel with progress.
   const DEVICE_KEYS = ['tapOffsetMs', 'volume', 'speed'];
   const WINDOW = 20;           // recent answers that decide mastery
@@ -58,6 +58,12 @@
   // Intonation samples kept per sung item: [day, cents off (absolute), cents off (signed, + is high)],
   // one per day, the newest last.
   const PITCH_KEEP = 10;
+  // Each day also keeps, per track, the times of its right answers (rt: [answers, deciseconds]) and
+  // how far off its sung answers were (cl: [answers, cents off, signed cents]), for the weekly charts:
+  // kept half a year, while the rest of the log keeps its last 420 days of practice.
+  const DETAIL_DAYS = 182;
+  // the fewest answers that make a week worth a point on a chart: accuracy, answer time, intonation
+  const WEEK_MIN = { q: 20, rt: 10, cl: 8 };
   // ---------- cleaning loaded state ----------
   // Saved progress comes back from localStorage, the claude.ai account and pasted backups, so it is
   // rebuilt field by field: known keys only, numbers that are finite, levels this curriculum has.
@@ -110,6 +116,18 @@
     if (t.complete === true) out.complete = true;
     return out;
   }
+  // a day's per-track detail ({ track: [answers, ...sums] }), rebuilt entry by entry: known tracks,
+  // a whole number of answers, sums cleaned by fix; null when nothing is left
+  function detail(m, len, fix) {
+    if (!isObj(m)) return null;
+    const o = {};
+    for (const [tr, a] of Object.entries(m)) {
+      if (!TRACK[tr] || !Array.isArray(a) || a.length !== len) continue;
+      const n = Math.floor(clampN(num(a[0]), 0, 1e5));
+      if (n) o[tr] = fix(n, a);
+    }
+    return Object.keys(o).length ? o : null;
+  }
   const isNewer = (s) => isObj(s) && num(s.v, 1) > FORMAT;
   const LINKS = (() => { try { new CompressionStream('deflate-raw'); new DecompressionStream('deflate-raw'); return true; } catch (e) { return false; } })();
   const b64url = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
@@ -152,6 +170,12 @@
         const o = { q: num(d.q), c: num(d.c), s: num(d.s), t: {} };
         if (d.pq != null) o.pq = num(d.pq);
         if (isObj(d.t)) for (const [tr, a] of Object.entries(d.t)) if (TRACK[tr] && Array.isArray(a)) o.t[tr] = [num(a[0]), num(a[1])];
+        // answer times: at most 15 s an answer, as recorded
+        const rt = detail(d.rt, 2, (n, a) => [n, Math.round(clampN(num(a[1]), 0, 150 * n))]);
+        if (rt) o.rt = rt;
+        // intonation: at most 100 cents off an answer, and the signed sum no further off than that
+        const cl = detail(d.cl, 3, (n, a) => { const abs = Math.round(clampN(num(a[1]), 0, 100 * n)); return [n, abs, Math.round(clampN(num(a[2]), -abs, abs))]; });
+        if (cl) o.cl = cl;
         out.days[k] = o;
       }
     }
@@ -392,6 +416,8 @@
       const m = this.mastery(id);
       if (!m.ready) return null;
       if (!m.isLast && this.nextNeeds(id)) return null;
+      // a finished track stays in review and its window fills again, but it is finished only once
+      if (m.isLast && t.complete) { t.window = []; t.windowDays = []; this.touch(); return null; }
       t.history.push({ level: t.level, at: Date.now(), mastered: true });
       if (m.isLast) { t.complete = true; t.window = []; t.windowDays = []; this.touch(); return null; }
       t.level++;
@@ -406,9 +432,16 @@
       const k = track + ':' + it;
       return this.state.items[k] || { n: 0, c: 0, e: 0.5, rt: 0, last: 0, box: 0, due: 0, bd: 0 };
     },
-    // How far off an answer was sung, in cents: merged into today's sample for the item.
-    recordPitch(track, it, abs, signed) {
+    // How far off an answer was sung, in cents: merged into today's sample for the item and, when the
+    // answer is scored, added to the day's intonation for the track.
+    recordPitch(track, it, abs, signed, scored = true) {
       if (!Number.isFinite(abs) || !Number.isFinite(signed)) return;
+      if (scored) {
+        const d = this.dayRec();
+        const m = d.cl || (d.cl = {});
+        const a = m[track] || (m[track] = [0, 0, 0]);
+        a[0] += 1; a[1] += Math.round(abs); a[2] += Math.round(signed);
+      }
       const k = track + ':' + it;
       const s = { ...this.item(track, it) };
       const today = todayNum();
@@ -457,7 +490,7 @@
     // Record one answered question. results: one score (0..1) per stats item.
     // Practice rounds (the answer was played first) count toward the day's goal but not toward
     // accuracy, review scheduling or mastery.
-    record({ track, level, items, results, rt = 0, confusions = [], practice = false }) {
+    record({ track, level, items, results, rt = 0, confusions = [], practice = false, early = false }) {
       const st = this.state;
       const now = Date.now();
       const today = todayNum();
@@ -470,8 +503,7 @@
           st.items[k] = s;
         });
         t.last = now;
-        const dk = dayKey();
-        const d = st.days[dk] || (st.days[dk] = { q: 0, c: 0, s: 0, t: {} });
+        const d = this.dayRec();
         d.pq = (d.pq || 0) + 1;
         this.touch();
         return;
@@ -506,24 +538,39 @@
         const key = asked + '>' + said;
         m[key] = (m[key] || 0) + 1;
       }
-      const dk = dayKey();
-      const d = st.days[dk] || (st.days[dk] = { q: 0, c: 0, s: 0, t: {} });
+      const d = this.dayRec();
       d.q += 1;
       const score = results.length ? results.reduce((a, b) => a + b, 0) / results.length : 0;
       d.c += Math.round(score * 100) / 100;
       const td = d.t[track] || (d.t[track] = [0, 0]);
       td[0] += 1; td[1] += Math.round(score * 100) / 100;
+      // the time to a right answer, for the weekly chart: not Melody's, whose time can include singing
+      // the melody back; a sequence's time is already per note or chord; an answer given while the
+      // sound still played (early) counts as no time at all
+      if (track !== 'melody' && results.length && results.every((r) => r >= 0.99) && (early || (rt > 0 && rt < 30000))) {
+        const m = d.rt || (d.rt = {});
+        const a = m[track] || (m[track] = [0, 0]);
+        a[0] += 1; a[1] += early ? 0 : Math.round(Math.min(rt, 15000) / 100);
+      }
       this.pruneDays();
       this.touch();
     },
-    addTime(seconds) {
+    // today's entry in the daily log, made when first needed
+    dayRec() {
       const dk = dayKey();
-      const d = this.state.days[dk] || (this.state.days[dk] = { q: 0, c: 0, s: 0, t: {} });
+      return this.state.days[dk] || (this.state.days[dk] = { q: 0, c: 0, s: 0, t: {} });
+    },
+    addTime(seconds) {
+      const d = this.dayRec();
       d.s += Math.round(seconds);
     },
     pruneDays() {
       const keys = Object.keys(this.state.days).sort();
       if (keys.length > 420) keys.slice(0, keys.length - 420).forEach((k) => delete this.state.days[k]);
+      const cut = new Date();
+      cut.setDate(cut.getDate() - DETAIL_DAYS);
+      const ck = dayKey(cut);
+      for (const k of Object.keys(this.state.days)) if (k < ck) { delete this.state.days[k].rt; delete this.state.days[k].cl; }
     },
     // A backup as text, to move progress between browsers, devices, or noaware.io and claude.ai.
     exportText() {
@@ -630,6 +677,50 @@
       }
       return q ? c / q : null;
     },
+    // One track's last n weeks, oldest first, the last ending today: answers, accuracy, the time to a
+    // right answer (seconds) and intonation (cents off, and which way the voice leaned), each summed
+    // over answers and null below its minimum; the level-ups in that time, as days back from today;
+    // and the first day answer times were kept.
+    weekly(track, n = 12) {
+      const weeks = [];
+      const d = new Date();
+      d.setDate(d.getDate() - (7 * n - 1));
+      for (let w = 0; w < n; w++) {
+        let q = 0, c = 0, rn = 0, ds = 0, pn = 0, ab = 0, sg = 0, from = null, to = null;
+        for (let i = 0; i < 7; i++) {
+          const k = dayKey(d);
+          if (!from) from = k;
+          to = k;
+          const day = this.state.days[k];
+          const t = day && day.t[track];
+          if (t) { q += t[0]; c += t[1]; }
+          const r = day && day.rt && day.rt[track];
+          if (r) { rn += r[0]; ds += r[1]; }
+          const p = day && day.cl && day.cl[track];
+          if (p) { pn += p[0]; ab += p[1]; sg += p[2]; }
+          d.setDate(d.getDate() + 1);
+        }
+        const cents = pn >= WEEK_MIN.cl ? ab / pn : null;
+        weeks.push({
+          from, to, q, acc: q >= WEEK_MIN.q ? c / q : null, rn, sec: rn >= WEEK_MIN.rt ? ds / rn / 10 : null, pn, cents,
+          lean: cents != null && Math.abs(sg / pn) >= 20 ? (sg < 0 ? 'low' : 'high') : null,
+        });
+      }
+      const timedFrom = Object.keys(this.state.days).sort().find((k) => this.state.days[k].rt && this.state.days[k].rt[track]) || null;
+      const today = todayNum();
+      const ups = [];
+      let finished = false;
+      for (const h of this.track(track).history) {
+        if (!h.mastered && !h.skipped) continue;
+        const done = !!h.mastered && h.level >= this.levelCount(track) - 1;
+        // saves from before a finished track was finished only once can hold it again and again
+        if (done) { if (finished) continue; finished = true; }
+        const back = today - dayNum(dayKey(new Date(h.at)));
+        if (back < 0 || back >= 7 * n) continue;
+        ups.push({ back, level: h.mastered ? h.level + 2 : h.level + 1, done });
+      }
+      return { weeks, ups, timedFrom };
+    },
     topConfusions(limit = 6) {
       const out = [];
       for (const [track, m] of Object.entries(this.state.conf)) {
@@ -654,6 +745,7 @@
     });
   }
   S.FORMAT = FORMAT;
+  S.WEEK_MIN = WEEK_MIN;
   TL.Store = S;
   TL.dayKey = dayKey;
   TL.DEFAULT_SETTINGS = DEFAULT_SETTINGS;

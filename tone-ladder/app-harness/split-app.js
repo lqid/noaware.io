@@ -8,12 +8,14 @@
 // regenerating it.
 //   node tone-ladder/app-harness/split-app.js            split js/app.js into js/app/
 //   node tone-ladder/app-harness/split-app.js --verify   regenerate from b1d424d into a temp folder and
-//                                                        compare with js/app/ (prints nothing when equal)
+//                                                        compare with js/app/ as the split committed it
+//                                                        (52f93e9; prints nothing when equal)
 const fs = require('fs'), path = require('path'), os = require('os');
 const { execFileSync } = require('child_process');
 const { tokenize } = require('../tests/js-tokens.js');
 const ROOT = path.join(__dirname, '..', '..'), APP = path.join(ROOT, 'static', 'tone-ladder');
 const BASE_REV = 'b1d424d';
+const SPLIT_REV = '52f93e9'; // the commit of the split: js/app/ has changed since, as the app has
 const verify = process.argv.includes('--verify');
 const SRC = verify ? null : path.join(APP, 'js', 'app.js');
 const OUT = verify ? fs.mkdtempSync(path.join(os.tmpdir(), 'tl-split-')) : path.join(APP, 'js', 'app');
@@ -149,14 +151,15 @@ for (const [m, { about, r }] of Object.entries(MAP)) {
   if (!verify) console.log(m.padEnd(16), String(out.length).padStart(4), 'lines; imports from', Object.keys(need[m] || {}).length, 'modules; exports', ex.length);
 }
 if (verify) {
-  // the modules in the repo must be exactly what the split produces
-  const here = path.join(APP, 'js', 'app');
-  const names = new Set([...fs.readdirSync(here), ...fs.readdirSync(OUT)]);
+  // the modules as the split committed them must be exactly what the split produces
+  const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const committed = git('ls-tree', '--name-only', `${SPLIT_REV}:static/tone-ladder/js/app/`).split('\n').filter(Boolean);
+  const names = new Set([...committed, ...fs.readdirSync(OUT)]);
   let diff = 0;
   for (const f of [...names].sort()) {
-    const a = fs.existsSync(path.join(here, f)) ? fs.readFileSync(path.join(here, f), 'utf8') : null;
+    const a = committed.includes(f) ? git('show', `${SPLIT_REV}:static/tone-ladder/js/app/${f}`) : null;
     const b = fs.existsSync(path.join(OUT, f)) ? fs.readFileSync(path.join(OUT, f), 'utf8') : null;
-    if (a !== b) { diff++; console.log(`differs: js/app/${f}${a === null ? ' (not in the repo)' : b === null ? ' (not produced)' : ''}`); }
+    if (a !== b) { diff++; console.log(`differs: js/app/${f}${a === null ? ' (not in the split commit)' : b === null ? ' (not produced)' : ''}`); }
   }
   fs.rmSync(OUT, { recursive: true, force: true });
   process.exitCode = diff ? 1 : 0;

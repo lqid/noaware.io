@@ -170,6 +170,7 @@ import { renderSession, renderStage } from './session-view.js';
     R.input = q.kind === 'sequence' ? Array(q.answer.length).fill(null) : [];
     R.cursor = 0;
     R.mainEnd = null;
+    R.mainH = null;
     R.replays = 0;
     R.levelUpNow = null;
     R.singMissed = false;
@@ -201,6 +202,7 @@ import { renderSession, renderStage } from './session-view.js';
     if (part === 'main' && R.phase === 'answering') R.replays++;
     const id = q.id;
     R.playH = h;
+    if (part === 'main') R.mainH = h;
     h.done.then((ok) => {
       if (!R || !R.q || R.q.id !== id || R.playH !== h) return;
       const m = R.mic;
@@ -247,11 +249,12 @@ import { renderSession, renderStage } from './session-view.js';
   }
 
   // Score one question and advance the learning engine. Practice rounds count toward the set and the day only.
-  function commit(q, results, rt, confusions) {
+  // early: answered while the question's sound was still playing
+  function commit(q, results, rt, confusions, early = false) {
     const b = block();
     const scored = !q.pooled && !q.practice;
     b.played = true;
-    S.record({ track: q.track, level: scored ? q.level : -1, items: q.stats, results, rt, confusions, practice: !!q.practice });
+    S.record({ track: q.track, level: scored ? q.level : -1, items: q.stats, results, rt, confusions, practice: !!q.practice, early });
     // the first answer ends onboarding; a newcomer never needs the 'updated' notice
     if (!S.state.onboarded) { S.state.onboarded = true; S.state.seen.v2 = true; }
     b.done++;

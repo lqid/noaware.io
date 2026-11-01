@@ -7,7 +7,7 @@ import { EX, exTonic, exploreActions } from './explore.js';
 import { MIC, micActions, micFinish, micGo, micPause, micResume, setMicPref } from './mic.js';
 import { midiActions, midiNote, midiReconnect, midiSupported } from './midi.js';
 import { CAL, MOVE, micPrefAsk, openLink, prefsActions } from './prefs.js';
-import { progressActions } from './progress.js';
+import { hideTips, progressActions, showTip } from './progress.js';
 import { clapStop, onTap, renderRhythmState, rhythmActions, rhythmGo, safeTs } from './rhythm.js';
 import { go, render } from './router.js';
 import { renderStage } from './session-view.js';
@@ -74,6 +74,8 @@ import { MU, PL, musicOpen, renderMusicState, yourMusicActions } from './your-mu
       if (!onTap(e.timeStamp) && R && R.q && R.q.kind === 'tap' && R.rPhase === 'ready') rhythmGo();
     }
     else if (e.target.closest('#calPad') && CAL.active) { e.preventDefault(); CAL.taps.push(A.heardTime(safeTs(e.timeStamp))); flashPad('#calPad'); }
+    // a tap away from a chart's weeks closes its numbers (a phone sends no mouse moves for it)
+    else if (app.view === 'progress' && !e.target.closest('rect.hit')) hideTips();
   });
   function flashPad(sel) { const p = $(sel); if (p) { p.classList.add('hit'); setTimeout(() => p.classList.remove('hit'), 90); } }
   document.addEventListener('change', (e) => {
@@ -110,18 +112,11 @@ import { MU, PL, musicOpen, renderMusicState, yourMusicActions } from './your-mu
     if (e.target.dataset && e.target.dataset.live && ACT[e.target.dataset.live]) { ACT[e.target.dataset.live]({ ...e.target.dataset, v: e.target.value }); return; }
     if (e.target.dataset.pref === 'volume') { S.settings.volume = +e.target.value; applyAudio(); }
   });
-  // activity chart tooltip
+  // chart tooltips on Progress: a week's numbers while the pointer is over it
   document.addEventListener('mousemove', (e) => {
-    const tip = $('#tip');
-    if (!tip) return;
+    if (app.view !== 'progress') return;
     const hit = e.target.closest && e.target.closest('rect.hit');
-    if (!hit) { tip.hidden = true; return; }
-    const card = $('#activity').getBoundingClientRect();
-    const r = hit.getBoundingClientRect();
-    tip.textContent = hit.dataset.tip;
-    tip.hidden = false;
-    tip.style.left = (r.left + r.width / 2 - card.left) + 'px';
-    tip.style.top = (e.clientY - card.top - 8) + 'px';
+    if (hit) showTip(hit, e.clientY); else hideTips();
   });
 
   document.addEventListener('keydown', (e) => {

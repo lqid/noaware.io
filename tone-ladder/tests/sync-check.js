@@ -1,5 +1,6 @@
 'use strict';
-// A link carries the progress: the store makes one, reads one back, and refuses a cut or foreign one.
+// A link carries the progress: the store makes one, reads one back, refuses a cut or foreign one,
+// and keeps a long history short enough to send.
 //   node tone-ladder/tests/sync-check.js [path/to/static/tone-ladder]
 const fs = require('fs'), path = require('path'), vm = require('vm'), zlib = require('zlib');
 const dir = process.argv[2] || path.join(__dirname, '..', '..', 'static', 'tone-ladder');
@@ -37,6 +38,22 @@ const fail = (m) => { bad++; console.log(m); };
   await expect('#x=abc', /not a Tone Ladder link/, 'another fragment');
   await expect('', /not a Tone Ladder link/, 'no fragment');
   await expect('#p=AAAA', /cut short/, 'bytes that are not deflate');
+  // a link stays short enough to send: a year and more of daily practice in three tracks, with
+  // answer times and intonation on the last half year (as kept), well under 40,000 characters
+  const full = JSON.parse(S.exportText()).state;
+  full.days = {};
+  const d = new Date();
+  for (let i = 0; i < 420; i++) {
+    const k = TL.dayKey(d), n = 10 + (i % 17);
+    full.days[k] = { q: 3 * n, c: Math.round(2.4 * n * 100) / 100, s: 600 + i % 300, t: { degrees: [n, Math.round(0.8 * n * 100) / 100], intervals: [n, Math.round(0.75 * n * 100) / 100], sing: [n, Math.round(0.85 * n * 100) / 100] } };
+    if (i < 182) Object.assign(full.days[k], { rt: { degrees: [n - 2, (n - 2) * (20 + i % 9)], intervals: [n - 3, (n - 3) * (25 + i % 11)] }, cl: { sing: [n - 1, (n - 1) * (15 + i % 13), -(n - 1) * (i % 7)] } });
+    d.setDate(d.getDate() - 1);
+  }
+  S.state = S.parseBackup(JSON.stringify(full));
+  const big = await S.exportLink(base);
+  console.log(`a 420-day link: ${big.length} characters`);
+  if (big.length > 40000) fail(`a 420-day link is ${big.length} characters, over 40,000`);
+  if (JSON.stringify(S.parseBackup(await S.textFromLink(new URL(big).hash)).days) !== JSON.stringify(S.state.days)) fail('a 420-day link did not read back');
   console.log(bad ? `${bad} problems` : 'sync OK');
   process.exitCode = bad ? 1 : 0;
 })();

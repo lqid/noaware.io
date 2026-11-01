@@ -1,6 +1,7 @@
 // Runs the app in Node against a fake DOM, a recording stand-in for the audio module, seeded
 // randomness and a virtual clock; drives every view, every track page, a long daily session,
-// Progress, Preferences and Explore through the document listeners; and prints every observable
+// Progress (with twelve weeks of history, tests/weeks-fixture.js), Preferences and Explore through
+// the document listeners (twice answering while the question still sounds); and prints every observable
 // effect (DOM writes, sounds asked for, saved data, timers, the session) as JSON lines. Two builds
 // that behave the same print the same lines. Errors print as listener-error, timer-error,
 // rejection-error, load-error or run-error lines, with where they happened.
@@ -12,6 +13,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { bundleApp } from '../app-bundle.mjs';
+import weeksFixture from '../tests/weeks-fixture.js';
 
 const mode = process.argv[2] || 'modules';
 const root = process.argv[3] || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'static', 'tone-ladder');
@@ -130,16 +132,18 @@ const A = {
   configure: (c) => log('A.configure', clean(c)), ensure: () => { log('A.ensure'); return {}; }, wake: () => {},
   stop() { log('A.stop'); for (const p of plays) { p.cancel(); } plays.clear(); },
   play(evs, o = {}) {
+    if (o.keep !== true) A.stop(); // as the real one: a new sound stops the last
     log('A.play', clean(evs), clean({ timbre: o.timbre, raw: o.raw, lead: o.lead, onEvent: !!o.onEvent }));
     const t0 = vnow / 1000 + (o.lead ?? 0.08);
     let res; const done = new Promise((r) => (res = r));
     const ids = [];
     evs.forEach((ev, i) => { ids.push(setTimeout(() => { if (o.onEvent) o.onEvent(ev, i); }, ((o.lead ?? 0.08) + (ev.t || 0)) * 1000)); });
     const end = Math.max(0, ...evs.map((e) => (e.t || 0) + (e.dur || 0)));
-    const p = { cancel: () => { ids.forEach(clearTimeout); clearTimeout(fin); res(false); } };
+    const h = { t0, done, cancelled: false };
+    const p = { cancel: () => { h.cancelled = true; ids.forEach(clearTimeout); clearTimeout(fin); res(false); } };
     const fin = setTimeout(() => { plays.delete(p); res(true); }, ((o.lead ?? 0.08) + end) * 1000);
     plays.add(p);
-    return { t0, done };
+    return h;
   },
   droneStart(t, l) { log('A.droneStart', t, l); A.droneTonic = t; }, droneStop(f) { log('A.droneStop', f); A.droneTonic = null; }, droneLevel: (l) => log('A.droneLevel', l),
   playing: () => plays.size > 0, now: () => vnow / 1000, latency: () => 0, inLatency: () => 0.01, heardTime: (ts) => ts / 1000,
@@ -174,6 +178,20 @@ for (let step = 0; step < 160; step++) {
   if (R.phase === 'between') { if (step % 7 === 3) await act({ act: 'skipBlock' }); else await key('Enter', 'Enter'); snap('between'); continue; }
   if (R.phase === 'mic') { await act({ act: 'micNo' }); snap('mic'); continue; }
   const q = R.q; if (!q) { await advance(1000); continue; }
+  // twice a right answer while the question still sounds: the first time as it plays (counted, at
+  // no time), the second after a part of it was replayed over it (not counted)
+  if (q.kind === 'choice' && (step === 1 || step === 4)) {
+    for (let k = 0; k < 300 && !(R.mainH && R.playH === R.mainH); k++) await advance(10);
+    if (step === 4) await act({ act: 'replay', part: Object.keys(q.audio.parts)[0] });
+    const times = () => [...(((TL.Store.state.days[TL.dayKey()] || {}).rt || {})[q.track] || [0, 0])]; // a copy: the store adds in place
+    const before = times();
+    await act({ act: 'answer', id: q.answer });
+    log('soon', step, q.track, before, times());
+    await advance(3000);
+    if (tl.runner && tl.runner.q === q && tl.runner.phase === 'feedback') await key('Enter', 'Enter');
+    snap('q ' + q.id + ' ' + q.track + ' ' + q.kind + ' soon');
+    continue;
+  }
   await advance(6000);
   const right = step % 3 !== 2;
   if (q.kind === 'choice') {
@@ -199,6 +217,12 @@ for (let step = 0; step < 160; step++) {
 await act({ act: 'go', view: 'progress' }); snap('progress after');
 for (const t of ['sing', 'intervals', 'rhythm']) { await act({ act: 'progTrack', track: t }); }
 snap('progress tabs');
+// twelve weeks of history, with level-ups, answer times and intonation: every track's charts
+TL.Store.applyBackup(TL.Store.parseBackup(JSON.stringify(weeksFixture(Date.now(), TL.dayKey))));
+await act({ act: 'go', view: 'progress' });
+for (const t of TL.Curriculum.TRACKS) await act({ act: 'progTrack', track: t.id });
+await act({ act: 'progTrack', track: 'intervals' }); await act({ act: 'chartTip', tip: 'a week' });
+snap('progress weeks');
 await act({ act: 'go', view: 'prefs' }); await act({ act: 'resetArm' }); await act({ act: 'go', view: 'today' }); await act({ act: 'go', view: 'prefs' }); snap('reset disarmed by go');
 await act({ act: 'exportProgress' }); snap('export');
 await act({ act: 'go', view: 'explore' }); for (const a of [{ act: 'exChord', rn: 'IV' }, { act: 'exChord', rn: 'V7' }, { act: 'exNote', id: '4', semi: '5' }, { act: 'exDir', dir: 'd' }, { act: 'exInterval', iv: 'P5' }, { act: 'exReplayTrail' }, { act: 'exDrone' }, { act: 'exMode', mode: 'minor' }]) { await act(a); await advance(500); }

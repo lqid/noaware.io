@@ -16,7 +16,7 @@ import { block, commit, itemFromChoice, nextQuestion, playPart, queueRetry, setL
     const correct = id === q.answer;
     const rt = R.mainEnd ? performance.now() - R.mainEnd : 0;
     const chosenItem = itemFromChoice(q, id);
-    commit(q, [correct ? 1 : 0], rt, correct ? [] : [[q.stats[0], chosenItem]]);
+    commit(q, [correct ? 1 : 0], rt, correct ? [] : [[q.stats[0], chosenItem]], answeredEarly());
     if (!correct) {
       const pool = block().pool || TRACK[q.track].levels[q.level].items;
       queueRetry(q, pool.includes(chosenItem) ? chosenItem : null);
@@ -30,6 +30,10 @@ import { block, commit, itemFromChoice, nextQuestion, playPart, queueRetry, setL
       h.done.then((ok) => setTimeout(() => { if (ok && R && R.q && R.q.id === qid && R.phase === 'feedback') nextQuestion(); }, 500));
     }
   }
+
+  // the answer came while the question was still sounding the first time, uncut: not after a part
+  // of it or a tapped chord stopped it, and not during a replay
+  const answeredEarly = () => R.mainEnd == null && R.mainH != null && !R.mainH.cancelled && R.replays === 1;
 
   // ---------- answering: sequence ----------
   function revealFeedback() {
@@ -77,7 +81,7 @@ import { block, commit, itemFromChoice, nextQuestion, playPart, queueRetry, setL
     const results = q.answer.map((a, i) => (R.input[i] === a ? 1 : 0));
     const conf = q.answer.map((a, i) => (R.input[i] !== a ? [a, R.input[i]] : null)).filter(Boolean);
     const rt = R.mainEnd ? performance.now() - R.mainEnd : 0;
-    commit(q, results, rt / q.answer.length, conf);
+    commit(q, results, rt / q.answer.length, conf, answeredEarly());
     R.results = results;
     renderStage();
     revealFeedback();
@@ -120,7 +124,7 @@ import { block, commit, itemFromChoice, nextQuestion, playPart, queueRetry, setL
         const vals = heard.kind === 'hold'
           ? [ns[Number.isInteger(r.graded) ? r.graded : ns.length - 1]].filter((x) => x && Number.isFinite(x.off) && Math.abs(x.off) <= 100).map((x) => x.off)
           : r.reason === 'transposed' || r.v === 0 ? [] : ns.filter((x) => x.ok && Number.isFinite(x.tune) && Math.abs(x.tune) <= 100).map((x) => x.tune);
-        if (vals.length) S.recordPitch(q.track, q.item, vals.reduce((a, x) => a + Math.abs(x), 0) / vals.length, vals.reduce((a, x) => a + x, 0) / vals.length);
+        if (vals.length) S.recordPitch(q.track, q.item, vals.reduce((a, x) => a + Math.abs(x), 0) / vals.length, vals.reduce((a, x) => a + x, 0) / vals.length, !q.practice);
       }
       MIC.rounds = micRounds() + 1;
       setDeviceInfo({ micRounds: MIC.rounds });

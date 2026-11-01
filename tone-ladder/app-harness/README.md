@@ -18,8 +18,9 @@ behaviour exactly the same.
   `go()` disarms the reset through `disarmReset()`), those two functions were added, and each
   screen's entries of the action table moved into a `<name>Actions` table that `main.js` spreads
   into `ACT`. `node split-app.js --verify` regenerates the
-  split from that commit and compares it with `js/app/`; it prints nothing when they match, so
-  the split can be reviewed without reading 3,500 moved lines.
+  split from that commit and compares it with `js/app/` as the split committed it (52f93e9;
+  the modules have changed since, as the app has); it prints nothing when they match, so the
+  split can be reviewed without reading 3,500 moved lines.
 
 When the split was made, the traces of the original, the modules and the bundle were identical
 line for line, and a browser run of 171 steps (every screen, three levels of every track, the
