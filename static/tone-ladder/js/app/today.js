@@ -49,7 +49,7 @@ import { startSession } from './session.js';
   // "To level up: 4 more right answers · Fa: 2 more right · with some on another day"
   // What one counted answer is in each track: a question, or one chord, note or rhythm figure of a question.
   const UNIT = {
-    harmony: ['right chord', 'right chords'], melody: ['right note', 'right notes'],
+    harmony: ['right chord', 'right chords'], melody: ['right note', 'right notes'], dictation: ['right note', 'right notes'],
     rhythm: ['rhythm figure tapped right', 'rhythm figures tapped right'], sing: ['Matched round', 'Matched rounds'], sight: ['Matched round', 'Matched rounds'],
   };
   const unitOf = (id, n) => (UNIT[id] || ['right answer', 'right answers'])[n === 1 ? 0 : 1];
@@ -71,7 +71,7 @@ import { startSession } from './session.js';
   function toGoShort(id) {
     const g = S.toGo(id);
     if (g.complete) return '';
-    if (g.answers) return id === 'harmony' || id === 'melody' ? `${g.answers} ${id === 'harmony' ? 'chords' : 'notes'} to level up` : `${g.answers} to level up`;
+    if (g.answers) return id === 'harmony' || id === 'melody' || id === 'dictation' ? `${g.answers} ${id === 'harmony' ? 'chords' : 'notes'} to level up` : `${g.answers} to level up`;
     if (g.items.length) return `${itemName(id, g.items[0].item)} needs ${g.items[0].more} more`;
     if (g.needsDay) return 'confirms on another day';
     return g.gate ? `waits for ${TRACK[g.gate.track].short} ${g.gate.level + 1}` : '';
@@ -154,7 +154,7 @@ import { startSession } from './session.js';
       'Tune in': 'Four chords set the key, then you sing. This puts the key in your ear and your voice before the listening questions.',
       Core: 'Scale Degrees, every day. You learn to hear each note by its place in the key. Every other skill here builds on this.',
       Focus: 'One more skill, rotating so each gets regular attention without crowding the session.',
-      'Mixed review': 'Questions from the tracks you have practiced, except the singing tracks, shuffled. Mixing feels harder in the moment and makes memory last.',
+      'Mixed review': 'Questions from the tracks you have practiced, except the singing tracks and Full Dictation, shuffled. Mixing feels harder in the moment and makes memory last.',
       'Sing to finish': 'A short singing set to end on. If you can sing a sound, you can hear it in your head.',
     };
     const backup = backupDue() ? `

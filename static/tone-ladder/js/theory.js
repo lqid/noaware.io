@@ -897,9 +897,12 @@
   const voiceProgression = WHOLE.voiceProgression;
 
   // ---------- melody generator ----------
+  // a skip, a move of more than 2 semitones, leaves and lands on skipTones (pitch classes; null: any)
+  const skipOk = (skipTones, a, b) => !skipTones || Math.abs(b - a) <= 2 || (skipTones.includes(mod12(a)) && skipTones.includes(mod12(b)));
   // pool: allowed semitone offsets from Do (sorted). chromatic: {semi: resolveTo}.
   // approach: the widest step into a chromatic note (Infinity: any leap the melody allows)
-  function genMelody({ pool, length, starts = [0], ends = [0], maxLeap = 4, leapProb = 0.25, chromatic = {}, approach = Infinity, tries = 200 }) {
+  // skipTones: the notes a skip may leave and land on (null: any)
+  function genMelody({ pool, length, starts = [0], ends = [0], maxLeap = 4, leapProb = 0.25, chromatic = {}, approach = Infinity, skipTones = null, tries = 200 }) {
     const P = pool.slice().sort((a, b) => a - b);
     const diatonic = P.filter((s) => !(s in chromatic));
     for (let attempt = 0; attempt < tries; attempt++) {
@@ -913,7 +916,7 @@
         for (const s of P) {
           const d = s - cur;
           const ad = Math.abs(d);
-          if (ad === 0 || ad > maxLeap) continue;
+          if (ad === 0 || ad > maxLeap || !skipOk(skipTones, cur, s)) continue;
           const isChrom = s in chromatic;
           if (isChrom && k === length - 1) continue; // chromatic notes need room to resolve
           if (isChrom && ad > approach) continue; // and are reached by step where the level says so
@@ -1038,6 +1041,331 @@
     return '·';
   }
 
+  // ---------- full dictation: a melody with its own rhythm ----------
+  // The rhythm is beat figures (RCELLS): each starts on a beat and stays inside its bar, so a wrong
+  // length never moves a note past a bar line. The melody comes from genMelody, a bar at a time, so
+  // that each bar's first note fits the bar's chord, short notes move by step and Do is reached
+  // from Re, Ti or Sol. A phrase that cannot have all of that keeps the one that broke the fewest
+  // rules, marked fallback.
+  const DOWNBEAT = {
+    major: { I: [0, 4, 7], IV: [5, 9, 0], V: [7, 11, 2] },
+    minor: { I: [0, 3, 7], IV: [5, 8, 0], V: [7, 11, 2] }, // V with the raised Ti
+  };
+  // the chord tones each bar's first note may take: I | I (two bars) or I | I or IV | V | I (four).
+  // In 4/4 the last bar's first note comes before the final Do on beat 3, so it may be V's too (as
+  // Re to Do): without that, a stepwise melody from Do or Mi to Do, whose note count is always odd,
+  // could take only one last bar.
+  function phraseChords(bars, mode, meter) {
+    const C = DOWNBEAT[minorLike(mode) ? 'minor' : 'major'];
+    return Array.from({ length: bars }, (_, b) => new Set(b === bars - 1 && meter === '4/4' ? [...C.I, ...C.V] : b === 0 || b === bars - 1 ? C.I : b === bars - 2 ? C.V : [...C.I, ...C.IV]));
+  }
+  // the notes and rests of figures laid end to end: [{ tick, len, rest }]
+  const figParts = (figs) => figs.flatMap((f) => {
+    let p = f.start;
+    return RCELLS[f.id].ticks.map((t) => { const x = { tick: p, len: Math.abs(t), rest: t < 0 }; p += Math.abs(t); return x; });
+  });
+  const layFigs = (ids) => { let p = 0; return ids.map((id) => { const f = { id, start: p, end: p + cellLen(id) }; p = f.end; return f; }); };
+
+  // lv: a Full Dictation level (cells, introduce, bars, notes, and genMelody's pool, starts, ends,
+  // maxLeap, leapProb, chromatic, approach, skipTones, want, mode). Returns { meter, bars, barTicks, beat,
+  // figs: [{ id, start, end }], notes: [{ semi, tick, len }], fallback }.
+  function genPhrase(lv, meter = '4/4') {
+    const [barTicks, beat] = METERS[meter] || METERS['4/4'];
+    const bars = lv.bars || 2;
+    const cells = lv.cells.filter((c) => RCELLS[c] && cellLen(c) % beat === 0);
+    const intro = (lv.introduce || []).filter((c) => cells.includes(c));
+    const focus = intro.length && Math.random() < 0.7 ? intro : [];
+    const [lo, hi] = lv.notes || [1, Infinity];
+    const sounding = (c) => RCELLS[c].ticks.every((t) => t > 0);
+    // the last bar ends on Do held to the bar line: beat 3 of 4/4 after two beats of notes, or beat 1
+    function lastBar() {
+      if (meter !== '4/4') return ['dh'];
+      const out = [];
+      for (let rem = 24; rem > 0;) {
+        const c = weightedPick(cells.filter((x) => sounding(x) && cellLen(x) <= rem).map((x) => [x, focus.includes(x) ? 2.2 : 1])) || 'q';
+        out.push(c);
+        rem -= cellLen(c);
+      }
+      return [...out, 'h'];
+    }
+    // a rhythm whose note count fits the level, with no rest on a downbeat or in the last bar, at
+    // most one rest in each pair of bars, and the figure in focus
+    function rhythm() {
+      let last = null;
+      for (let k = 0; k < 400; k++) {
+        const r = genRhythm({ cells, focus, bars: bars - 1, meter });
+        if (r.ticks.reduce((a, t) => a + Math.abs(t), 0) !== (bars - 1) * barTicks) continue; // genRhythm's own fallback is a bar of 4/4
+        const ids = [...r.cells, ...lastBar()];
+        const figs = layFigs(ids), parts = figParts(figs);
+        const notes = parts.filter((x) => !x.rest).map(({ tick, len }) => ({ tick, len }));
+        const rests = parts.filter((x) => x.rest);
+        last = { figs, notes };
+        if (notes.length < lo || notes.length > hi) continue;
+        if (rests.some((x) => x.tick % barTicks === 0 || x.tick >= (bars - 1) * barTicks)) continue;
+        if (new Set(rests.map((x) => Math.floor(x.tick / barTicks / 2))).size < rests.length) continue;
+        if (focus.length && !ids.some((c) => focus.includes(c))) continue;
+        return last;
+      }
+      if (last) return last;
+      const figs = layFigs([...Array((bars - 1) * barTicks / beat).fill(meter === '6/8' ? 'dq' : 'q'), ...lastBar()]);
+      return { figs, notes: figParts(figs).map(({ tick, len }) => ({ tick, len })) };
+    }
+    const chords = phraseChords(bars, lv.mode, meter);
+    const target = lv.want ? pick(lv.want) : null;
+    // how many rules a melody on this rhythm breaks; 100 for a rule genMelody keeps, unless it fell
+    // back on its stepwise descent
+    function faults(notes, mel) {
+      let n = 0;
+      if (!lv.starts.includes(mel[0]) || !lv.ends.map(mod12).includes(mod12(mel[mel.length - 1]))) n += 100;
+      for (let i = 1; i < mel.length; i++) if (mel[i] === mel[i - 1] || Math.abs(mel[i] - mel[i - 1]) > lv.maxLeap || !skipOk(lv.skipTones, mel[i - 1], mel[i])) n += 100;
+      for (const [c, to] of Object.entries(lv.chromatic || {})) mel.forEach((s, i) => { if (s === +c && mel[i + 1] !== to) n += 100; });
+      // Fi or Te where the level teaches them: the one picked for this question, or else the other
+      if (lv.want) n += mel.includes(target) ? 0 : mel.some((x) => lv.want.includes(x)) ? 1 : 100;
+      notes.forEach((x, i) => { if (x.tick % barTicks === 0 && !chords[x.tick / barTicks].has(mod12(mel[i]))) n++; });
+      // a note shorter than the beat is reached and left by step; in 6/8 the eighth is the pulse itself
+      if (meter !== '6/8') notes.forEach((x, i) => { if (x.len < beat && ((i > 0 && Math.abs(mel[i] - mel[i - 1]) > 2) || (i < mel.length - 1 && Math.abs(mel[i + 1] - mel[i]) > 2))) n++; });
+      if (mel.length > 1 && ![2, 11, 7].includes(mod12(mel[mel.length - 2]))) n++;
+      return n;
+    }
+    // A melody a stretch at a time, from one bar's first note to the next bar's, each stretch ending
+    // on that bar's chord (the last on Do) and drawn again while a short note in it leaps or Do is
+    // not reached from Re, Ti or Sol: whole melodies meet all of that together too rarely. null
+    // when genMelody cannot reach the chord at all, because the rhythm puts the chord tones where
+    // its steps cannot land (at level 1, every other note).
+    function melodyOn(notes) {
+      const N = notes.length;
+      const stops = [...new Set([...notes.map((x, i) => (x.tick % barTicks === 0 ? i : -1)).filter((i) => i >= 0), N - 1])];
+      const mel = [];
+      for (let s = 0; s < stops.length - 1; s++) {
+        const a = stops[s], b = stops[s + 1];
+        const starts = a ? [mel[a]] : lv.starts, ends = b === N - 1 ? lv.ends : [...chords[notes[b].tick / barTicks]];
+        const short = (i) => notes[i].len < beat && meter !== '6/8';
+        let seg = null, worst = Infinity;
+        for (let t = 0; t < 20 && worst; t++) {
+          const x = genMelody({ ...lv, length: b - a + 1, starts, ends });
+          if (!starts.includes(x[0]) || !ends.map(mod12).includes(mod12(x[x.length - 1]))) return null;
+          const leaps = x.some((v, j) => j && (short(a + j - 1) || short(a + j)) && Math.abs(v - x[j - 1]) > 2);
+          const into = b === N - 1 && x.length > 1 && ![2, 11, 7].includes(mod12(x[x.length - 2]));
+          // short stretches ending on a chord tone tend to rock between two notes: take one that does
+          // not, where the rules allow it
+          const w = [...mel.slice(Math.max(0, a - 3), a), ...x];
+          const rocks = w.some((v, j) => j >= 3 && v === w[j - 2] && w[j - 1] === w[j - 3]);
+          const bad = (leaps || into ? 2 : 0) + (rocks ? 1 : 0);
+          if (bad < worst) { seg = x; worst = bad; }
+        }
+        mel.push(...(a ? seg.slice(1) : seg));
+      }
+      return mel;
+    }
+    const done = (r, mel, fallback) => ({ meter, bars, barTicks, beat, figs: r.figs, notes: r.notes.map((x, i) => ({ semi: mel[i], tick: x.tick, len: x.len })), fallback });
+    let best = null;
+    for (let k = 0; k < 40; k++) {
+      const r = rhythm();
+      for (let m = 0; m < 8; m++) {
+        const built = melodyOn(r.notes);
+        const mel = built || genMelody({ ...lv, length: r.notes.length });
+        const n = faults(r.notes, mel);
+        if (!n) return done(r, mel, false);
+        if (!best || n < best.n) best = { r, mel, n };
+        if (!built) break; // no melody fits this rhythm
+      }
+    }
+    return done(best.r, best.mel, true);
+  }
+
+  // ---------- full dictation: the learner's entry ----------
+  // An entry is { figs: [{ id, start, end }], names: { tick: degree id } }: figures in time order,
+  // each on a beat and inside its bar, and names keyed by the tick of the written note they name.
+  // Plain data, so it saves and compares as JSON. Every function takes the question (its bars,
+  // beat, palette, options and given first note) and returns a new entry or a fact about one.
+  function nearestSemi(id, around) {
+    const base = DEG[id].semi;
+    let best = base;
+    for (let o = -24; o <= 24; o += 12) if (Math.abs(base + o - around) < Math.abs(best - around)) best = base + o;
+    return best;
+  }
+  const Dict = (() => {
+    const total = (q) => q.bars * q.barTicks;
+    const covers = (f, tick) => f.start <= tick && tick < f.end;
+    // the written notes in time order: [{ tick, len, name }], name null until named
+    const onsets = (q, e) => figParts(e.figs).filter((x) => !x.rest).map((x) => ({ tick: x.tick, len: x.len, name: e.names[x.tick] ?? null }));
+    // keep the names whose note is still written; the first note carries the given name
+    function tidy(q, figs, names) {
+      figs = figs.slice().sort((a, b) => a.start - b.start);
+      const on = new Set(figParts(figs).filter((x) => !x.rest).map((x) => x.tick));
+      const out = {};
+      for (const [k, v] of Object.entries(names)) if (on.has(+k)) out[k] = v;
+      if (q.given != null && on.has(0)) out[0] = q.given;
+      return { figs, names: out };
+    }
+    const empty = (q) => tidy(q, [], {});
+    // why a figure cannot go at a tick, or null: 'figure' (not this level's), 'beat' (not on a beat),
+    // 'bar' (it would cross the bar line: need and left in beats, bar from 1), 'first' (a rest first)
+    function refuse(q, id, at) {
+      if (!q.palette.includes(id)) return { why: 'figure' };
+      if (!(at >= 0 && at < total(q)) || at % q.beat) return { why: 'beat' };
+      const need = cellLen(id) / q.beat, left = room(q, at);
+      if (need > left) return { why: 'bar', need, left, bar: Math.floor(at / q.barTicks) + 1 };
+      if (at === 0 && RCELLS[id].ticks[0] < 0) return { why: 'first' };
+      return null;
+    }
+    // beats from a tick to the next bar line
+    const room = (q, at) => (q.barTicks - (at % q.barTicks)) / q.beat;
+    // a figure at a beat, replacing the figures it overlaps; null when refused
+    function place(q, e, id, at) {
+      if (refuse(q, id, at)) return null;
+      const f = { id, start: at, end: at + cellLen(id) };
+      return tidy(q, [...e.figs.filter((x) => x.end <= f.start || x.start >= f.end), f], e.names);
+    }
+    // without the figure that covers a tick (unchanged when none does)
+    const remove = (q, e, tick) => tidy(q, e.figs.filter((f) => !covers(f, tick)), e.names);
+    const figAt = (e, tick) => e.figs.find((f) => covers(f, tick)) || null;
+    // the last figure that ends at or before a tick, or null
+    const figBefore = (e, tick) => e.figs.filter((f) => f.end <= tick).pop() || null;
+    // the beats no figure covers, as ticks
+    function blanks(q, e) {
+      const out = [];
+      for (let t = 0; t < total(q); t += q.beat) if (!figAt(e, t)) out.push(t);
+      return out;
+    }
+    // empty beats in a bar (from 0)
+    const barLeft = (q, e, bar) => blanks(q, e).filter((t) => Math.floor(t / q.barTicks) === bar).length;
+    // the next empty beat after a tick, round to the start; null when every beat is covered
+    function nextBlank(q, e, after) {
+      const b = blanks(q, e);
+      return b.find((t) => t > after) ?? b[0] ?? null;
+    }
+    const full = (q, e) => !blanks(q, e).length;
+    const unnamed = (q, e) => onsets(q, e).filter((x) => !x.name).map((x) => x.tick);
+    const complete = (q, e) => full(q, e) && !unnamed(q, e).length && onsets(q, e).length > 0;
+    const locked = (q, tick) => tick === 0 && q.given != null;
+    // a name on the written note at a tick; null when no note starts there, the name is locked or
+    // not among the options
+    function name(q, e, tick, id) {
+      if (locked(q, tick) || !q.options.some((o) => o.id === id) || !onsets(q, e).some((x) => x.tick === tick)) return null;
+      return { figs: e.figs, names: { ...e.names, [tick]: id } };
+    }
+    function unname(q, e, tick) {
+      if (locked(q, tick)) return null;
+      const names = { ...e.names };
+      delete names[tick];
+      return { figs: e.figs, names };
+    }
+    // the index of the next unnamed written note after index i, round to the first; -1 when all are named
+    function nextUnnamed(q, e, i) {
+      const on = onsets(q, e);
+      const k = on.findIndex((x, j) => j > i && !x.name);
+      return k >= 0 ? k : on.findIndex((x) => !x.name);
+    }
+    // the written figures' notes and rests, and the empty beats, in time order, for drawing:
+    // [{ tick, len, kind: 'note' | 'rest' | 'blank', fig, start, name, w }], fig and start the
+    // figure's id and tick (a blank's start is its own), w the note's index among the written notes
+    function items(q, e) {
+      const out = [];
+      let w = 0;
+      for (let t = 0; t < total(q);) {
+        const f = figAt(e, t);
+        if (!f) { out.push({ tick: t, len: q.beat, kind: 'blank', fig: null, start: t, name: null, w: null }); t += q.beat; continue; }
+        for (const x of figParts([f])) out.push({ tick: x.tick, len: x.len, kind: x.rest ? 'rest' : 'note', fig: f.id, start: f.start, name: x.rest ? null : e.names[x.tick] ?? null, w: x.rest ? null : w++ });
+        t = f.end;
+      }
+      return out;
+    }
+    // a name's place, in semitones from Do: the octave nearest a note, inside the level's range
+    // (q.range), so a written melody never drifts off the staff note by note
+    function near(q, id, around) {
+      const [lo, hi] = q.range || [-Infinity, Infinity];
+      let best = null;
+      for (let s = DEG[id].semi - 24; s <= DEG[id].semi + 24; s += 12) if (s >= lo && s <= hi && (best == null || Math.abs(s - around) < Math.abs(best - around))) best = s;
+      return best ?? nearestSemi(id, around);
+    }
+    // where each written note sounds (null while unnamed): near the previous named note, the given
+    // first note where it is; with a grade (gradeDictation), a right name at the melody's own octave
+    function pitches(q, e, g) {
+      let prev = q.notes[0].semi;
+      return onsets(q, e).map((x, j) => {
+        if (!x.name) return null;
+        const w = g && g.written[j];
+        const s = w && w.nameOk ? q.notes[w.pair].semi : locked(q, x.tick) ? q.notes[0].semi : near(q, x.name, prev);
+        prev = s;
+        return s;
+      });
+    }
+    // the letter (0 = C .. 6 = B) a note sits on: counted from Do's letter, as Sight-Singing writes it
+    const letter = (q, id) => ('CDEFGAB'.indexOf(keyName(q.tonic, q.mode)[0]) + Number(id.slice(-1)) - 1) % 7;
+    // bar and beat from 1, and the eighths past the beat
+    const where = (q, tick) => ({ bar: Math.floor(tick / q.barTicks) + 1, beat: Math.floor((tick % q.barTicks) / q.beat) + 1, part: ((tick % q.barTicks) % q.beat) / 6 });
+    // the right answer, as an entry
+    const exact = (q) => tidy(q, q.figs.map((f) => ({ ...f })), Object.fromEntries(q.notes.map((x) => [x.tick, x.id])));
+    return { empty, refuse, room, place, remove, figAt, figBefore, onsets, blanks, barLeft, nextBlank, full, unnamed, complete, locked, name, unname, nextUnnamed, items, near, pitches, letter, where, exact };
+  })();
+
+  // ---------- full dictation: grading ----------
+  // Lengths by time: a melody note's length is right when a written note starts on its tick with its
+  // length, and a written note that starts where the melody has none is extra. Names by alignment:
+  // the first notes pair, the rest are paired at least cost (a pair costs 1 for a different name and
+  // 1 for a different tick, 1/32 less for the same tick and length; a note left unpaired 1; ties
+  // prefer a pair, then a missed note, then an extra one), so one dropped or added note does not make
+  // every later name wrong. A different tick costs as much as a different name: at 0.5, a run of five
+  // or more names a step off on the right rhythm would pair each note with its neighbour of the same
+  // name and grade those names right. The same tick and length only break ties: a melody has at most
+  // 14 notes, so the 1/32s add up to less than 1, the least the other costs can differ by. Without
+  // them, a run of names a step off costs the same paired by tick or slid one note along, and one
+  // note dropped or added anywhere tips it into the slide, which grades those names right and reports
+  // a written note missing. Much bigger (0.5 was tried) and a wrong name on its tick beats a right one
+  // a note along, so two notes written as one in one bar and one as two in another grade every right
+  // name between them wrong. Costs stay multiples of 1/32, so sums compare exactly. A figure is right
+  // when the entry has it on the same tick.
+  function gradeDictation(q, entry) {
+    const M = q.notes, W = Dict.onsets(q, entry);
+    const graded = (i) => i > 0 || q.given == null;
+    const wAt = new Map(W.map((x) => [x.tick, x]));
+    const mTicks = new Set(M.map((x) => x.tick));
+    const pairM = M.map(() => null), pairW = W.map(() => null);
+    if (M.length && W.length) {
+      pairM[0] = 0; pairW[0] = 0;
+      const n = M.length - 1, m = W.length - 1;
+      const cost = (i, j) => (M[i].id === W[j].name ? 0 : 1) + (M[i].tick !== W[j].tick ? 1 : M[i].len === W[j].len ? -1 / 32 : 0);
+      // D[i][j]: the least cost of melody notes 1..i against written notes 1..j
+      const D = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+      for (let i = 0; i <= n; i++) for (let j = 0; j <= m; j++) {
+        if (i || j) D[i][j] = Math.min(i && j ? D[i - 1][j - 1] + cost(i, j) : Infinity, i ? D[i - 1][j] + 1 : Infinity, j ? D[i][j - 1] + 1 : Infinity);
+      }
+      for (let i = n, j = m; i || j;) {
+        if (i && j && D[i][j] === D[i - 1][j - 1] + cost(i, j)) { pairM[i] = j; pairW[j] = i; i--; j--; }
+        else if (i && D[i][j] === D[i - 1][j] + 1) i--;
+        else j--;
+      }
+    }
+    const notes = M.map((x, i) => {
+      const w = wAt.get(x.tick);
+      const lenOk = !!w && w.len === x.len;
+      const said = pairM[i] == null ? null : W[pairM[i]].name;
+      const nameOk = said != null && said === x.id;
+      return { id: x.id, tick: x.tick, len: x.len, graded: graded(i), nameOk, lenOk, pair: pairM[i], said, score: graded(i) ? (+nameOk + +lenOk) / 2 : +lenOk };
+    });
+    const written = W.map((x, j) => ({ tick: x.tick, len: x.len, name: x.name, pair: pairW[j], extra: !mTicks.has(x.tick), nameOk: pairW[j] != null && M[pairW[j]].id === x.name }));
+    // a wrong figure was "said" as another when the entry has one figure of the same length on its tick
+    const figs = q.figs.map((f) => {
+      const at = entry.figs.filter((x) => x.start === f.start);
+      const ok = at.some((x) => x.id === f.id);
+      const same = at.filter((x) => cellLen(x.id) === cellLen(f.id));
+      return { id: f.id, start: f.start, end: f.end, ok, said: !ok && same.length === 1 ? same[0].id : null, wrote: entry.figs.filter((x) => x.start < f.end && x.end > f.start).map((x) => ({ ...x })) };
+    });
+    const extra = written.filter((x) => x.extra).length;
+    const scores = [...notes.map((x) => x.score), ...written.filter((x) => x.extra).map(() => 0)];
+    return {
+      results: [...notes.filter((x) => x.graded).map((x) => +x.nameOk), ...figs.map((f) => +f.ok)],
+      scores,
+      confusions: [...notes.filter((x) => x.graded && !x.nameOk && x.said).map((x) => [x.id, x.said]), ...figs.filter((f) => f.said).map((f) => [f.id, f.said])],
+      notes, written, figs, extra,
+      names: { right: notes.filter((x) => x.graded && x.nameOk).length, of: notes.filter((x) => x.graded).length },
+      lengths: { right: notes.filter((x) => x.lenOk).length, of: notes.length },
+      right: notes.filter((x) => (x.nameOk || !x.graded) && x.lenOk).length,
+      all: !extra && scores.every((s) => s === 1),
+    };
+  }
+
   Object.assign(TL, {
     rand, randInt, pick, weightedPick, shuffle, mod12, mtof, an,
     KEY_NAMES, MINOR_KEY_NAMES, MODE_NAMES, MODE_SIGN, minorLike, keyName, METERS,
@@ -1046,5 +1374,6 @@
     INTERVALS, IV, CHORD_TYPES, chordVoicing,
     RN, rnPcs, rnBassPc, NEXT, genProgression, voiceChord, voiceProgression, parallels,
     genMelody, RCELLS, cellLen, genRhythm, rhythmOnsets, countLabel,
+    genPhrase, Dict, gradeDictation,
   });
 })(typeof window !== 'undefined' ? window : globalThis);

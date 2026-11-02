@@ -2,6 +2,7 @@
 import { $, A, CUR, DEG, S, TL, TRACK, degText, esc, fmtNum, itemName, pct, rnHue } from './base.js';
 import { R } from './state.js';
 import { choiceBodyHTML, feedbackHTML, rhythmStaff, seqBodyHTML } from './answer-view.js';
+import { dictHTML } from './dictation-view.js';
 import { singBack } from './mic.js';
 import { renderRhythmState, rhythmHTML } from './rhythm.js';
 import { block, levelFor, pillLabel } from './session.js';
@@ -64,20 +65,28 @@ import { toGoShort } from './today.js';
     chords: 'Listen for the overall color first: bright or dark, tense or floating. Press Note by note to hear the notes one at a time.',
     harmony: (q) => q.listenTip,
     melody: (q) => (q.voice ? `Sing the ${q.voice === 'bass' ? 'bass' : 'top voice'} back once before you answer.` : 'Sing the melody back once before you answer.') + ' Then name each note by how it sits against Do.',
+    dictation: 'Listen the first time without writing. Sing it back under your breath and tap the beat. Write the rhythm bar by bar, then name each note from Do.',
     sing: '',
   };
+  // Full Dictation's hearings: "Hearing 2 of 4", a practice round past the last; the buttons that
+  // play the melody say so once the hearings are used, each keeping its own name ("Replay all
+  // (practice)"), since a phone hides the Space key that tells them apart
+  const hearingsText = (q) => (R.heard <= q.hearings ? `Hearing ${Math.max(1, R.heard)} of ${q.hearings}` : 'Practice round');
+  const replayInner = (q, r) => `${esc(q.hearings && R.phase === 'answering' && R.heard >= q.hearings && (r.part === 'main' || r.part === 'melody') ? `${r.label} (practice)` : r.label)}${r.key ? ' <kbd>Space</kbd>' : ''}`;
 
   function questionHTML() {
     const q = R.q;
     const keyLine = q.tonic != null && TRACK[q.track].usesKey && !q.hideKey && !(q.keyHidden && R.phase === 'answering') ? `<p class="q-key">Key of <b>${esc(TL.keyName(q.tonic, q.mode || 'major'))}</b>${q.keyChanged && R.qid > 1 ? ' · <span class="new">new key: Do has moved</span>' : ''}${q.drone ? ' · drone' : ''}</p>` : '';
-    // in singing questions, extra sounds wait until the chords finish, so a click cannot cut them off
-    const wait = (r) => q.kind === 'sing' && r.part !== 'main' && R.mainEnd == null && R.phase === 'answering';
-    const replays = (q.replays || []).map((r) => `<button class="btn sm" data-act="replay" data-part="${r.part}"${wait(r) ? ' disabled data-needs-main' : ''}>${esc(r.label)}${r.key ? ' <kbd>Space</kbd>' : ''}</button>`).join('');
+    // in singing questions, extra sounds wait until the chords finish, so a click cannot cut them off;
+    // in Full Dictation, until the melody has been heard once
+    const wait = (r) => (q.kind === 'sing' || q.kind === 'dictation') && r.part !== 'main' && R.mainEnd == null && R.phase === 'answering';
+    const replays = (q.replays || []).map((r) => `<button class="btn sm" data-act="replay" data-part="${r.part}"${wait(r) ? ' disabled data-needs-main' : ''}>${replayInner(q, r)}</button>`).join('');
     const top = `<div class="q-top"><p class="q-prompt">${esc(q.prompt)}</p>${keyLine}</div>`;
     const sounding = A.playing();
     const listen = `<span class="listen-state${sounding ? '' : ' idle'}" id="listenState"><i class="pulse"></i><span>${pillLabel(sounding)}</span></span>`;
     if (q.kind === 'tap') return top + rhythmHTML();
     if (q.kind === 'sing') return top + `<div class="q-replays">${replays}${listen}</div>` + singHTML();
+    if (q.kind === 'dictation') return top + `<div class="q-replays">${replays}${q.hearings && R.phase === 'answering' ? `<span class="hearings" id="hearings">${hearingsText(q)}</span>` : ''}${listen}</div>` + dictHTML();
     let echo = '';
     if (R.mic && singBack(q) && R.phase === 'answering') {
       echo = R.mic.state === 'heard' ? `<div class="sing echo">${micResultHTML(q, R.mic.result, { blind: true })}${takeRowHTML()}</div>` : R.mic.state !== 'off' ? `<div class="sing echo">${micPanelHTML(q)}</div>` : '';
@@ -122,7 +131,7 @@ import { toGoShort } from './today.js';
         : c.demos.map((d, di) => `<button class="btn sm" data-act="demo" data-card="${ci}" data-demo="${di}">${esc(d.label)}</button>`).join('');
       const hint = c.hintKey ? `<label>Optional: know a song with this jump? Type its name. It will show after each answer for this interval${c.hasSong ? ', in place of the song above' : ''}.<input type="text" id="hint-${esc(c.hintKey)}" data-hint="${esc(c.hintKey)}" value="${esc(c.hint)}" placeholder="Song name" maxlength="80"></label>` : '';
       let counts = c.rhythm ? countLine(c.rhythm) + rhythmStaff(c.rhythm) : '';
-      if (c.staff && TL.Notation) try { counts = `<div class="score sight-staff">${sightStaffSVG(c.staff, c.staff.ids.map((id) => degText(id).main), [], Math.min(420, Math.max(280, window.innerWidth - 64)))}</div>`; } catch (e) { /* the card reads without it */ }
+      if (c.staff && TL.Notation) try { counts = `<div class="score sight-staff">${sightStaffSVG(c.staff, c.staff.ids.map((id) => (id ? degText(id).main : '')), [], Math.min(420, Math.max(280, window.innerWidth - 64)))}</div>`; } catch (e) { /* the card reads without it */ }
       return `<div class="icard deg" style="--h:${hue || tr.hue}">
         <h3 class="${trackId === 'harmony' || !degLike || !DEG[did] ? 'rn' : ''}">${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ''}</h3>
         ${c.text ? `<p>${esc(c.text)}</p>` : ''}${counts}
@@ -131,7 +140,7 @@ import { toGoShort } from './today.js';
       </div>`;
     }).join('');
     const demos = data.demos.map((d, di) => `<button class="btn" data-act="demo" data-card="-1" data-demo="${di}">${esc(d.label)}</button>`).join('');
-    const hasCounts = data.cards.some((c) => c.rhythm);
+    const hasCounts = trackId === 'rhythm' && data.cards.some((c) => c.rhythm); // tapping is Rhythm's; Full Dictation's figures are written
     const range = data.rangePicker ? `<label class="field" style="max-width:420px">Your singing range. The app plays Do at this height. Too low or too high to hum? Change it:
         <select id="introVoice" data-pref="voice">${CUR.VOICE_LABELS.map(([v, l]) => `<option value="${v}" ${S.settings.voice === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
         <span class="muted" style="font-weight:400">You can change this later in Preferences.</span></label>` : '';
@@ -155,7 +164,7 @@ import { toGoShort } from './today.js';
     const prevName = prev.track === 'mix' ? 'Mixed review' : TRACK[prev.track].name;
     const prevScore = prev.skipped || !prev.sn && !prev.played ? 'skipped' : prev.sn ? pct(prev.score / prev.sn) : 'practice rounds only';
     const next = b.track === 'mix'
-      ? '<p class="lede" style="margin-top:0">Next: <strong>Mixed review</strong>. Questions from the tracks you have practiced, except the singing tracks, shuffled.</p>'
+      ? '<p class="lede" style="margin-top:0">Next: <strong>Mixed review</strong>. Questions from the tracks you have practiced, except the singing tracks and Full Dictation, shuffled.</p>'
       : `<p class="lede" style="margin-top:0">Next: <strong>${esc(b.role)}</strong>, ${esc(TRACK[b.track].name)}. Level ${levelFor(b) + 1} · ${esc(TRACK[b.track].levels[levelFor(b)].name)}.</p>
          <p class="muted">${esc(TRACK[b.track].levels[levelFor(b)].task || (TRACK[b.track].taskFor && TRACK[b.track].taskFor(S.settings)) || TRACK[b.track].task)}</p>`;
     return `<div class="between">
@@ -190,4 +199,4 @@ import { toGoShort } from './today.js';
     </div>`;
   }
 
-export { TIPS, renderSession, renderStage };
+export { TIPS, hearingsText, renderSession, renderStage, replayInner };

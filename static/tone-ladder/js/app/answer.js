@@ -2,6 +2,7 @@
 import { $, A, S, TL, TRACK, isFindDo, setDeviceInfo, toast } from './base.js';
 import { R } from './state.js';
 import { renderSeq } from './answer-view.js';
+import { restage } from './dictation.js';
 import { MIC, micRounds, takeHere } from './mic.js';
 import { renderStage } from './session-view.js';
 import { block, commit, itemFromChoice, nextQuestion, playPart, queueRetry, setListening } from './session.js';
@@ -163,8 +164,9 @@ import { block, commit, itemFromChoice, nextQuestion, playPart, queueRetry, setL
     singReveal,
     singGrade: (d) => singGrade(+d.v),
     singGuess: (d) => singGuess(+d.v),
-    staffAlt: () => { if (R) { R.staffAlt = !R.staffAlt; renderStage(); } },
+    // a Full Dictation question is long work at the keyboard: the toggle keeps the focus there
+    staffAlt: () => { if (R) { R.staffAlt = !R.staffAlt; if (R.q && R.q.kind === 'dictation') restage('[data-act="staffAlt"]'); else renderStage(); } },
     showNames: () => { const q = R && R.q; if (!q || !q.staff || R.phase !== 'answering' || q.namesShown) return; q.namesShown = true; q.practice = true; renderStage(); },
   };
 
-export { GRADE_NAME, answerActions, answerChoice, seqBack, seqPick, seqSubmit, singGrade, singGuess, singReveal };
+export { GRADE_NAME, answerActions, answerChoice, revealFeedback, seqBack, seqPick, seqSubmit, singGrade, singGuess, singReveal };

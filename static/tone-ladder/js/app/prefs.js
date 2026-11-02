@@ -63,7 +63,7 @@ import { micUnblockHint } from './sing-view.js';
     if (!micAvailable()) return 'The microphone is not available in this copy of Tone Ladder. It works at noaware.io/tone-ladder/.';
     if (MIC.prefErr) return (MIC_PREF_ERR[MIC.prefErr] || MIC_PREF_ERR.other)();
     if (MIC.perm === 'denied') return `The browser blocks the microphone for this site. ${micUnblockHint()}`;
-    return 'The microphone grades Sing questions, hears the melody you sing back in dictation, and hears your claps in rhythm sets. The sound is analysed on this device and never sent anywhere; only the current answer is kept, until the next question, so you can save it if a grade looks wrong.';
+    return 'The microphone grades Sing questions, hears the melody you sing back in Melodic Dictation, and hears your claps in rhythm sets. The sound is analysed on this device and never sent anywhere; only the current answer is kept, until the next question, so you can save it if a grade looks wrong.';
   }
   // Sing a slow slide from the lowest comfortable note to the highest: the app picks the singing range.
   const NOTE_NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
@@ -191,9 +191,9 @@ import { micUnblockHint } from './sing-view.js';
           ${row('Daily goal', 'Sets the length of the Today plan.', sel('dailyGoal', [[15, '15 questions · about 6 min'], [30, '30 questions · about 12 min'], [50, '50 questions · about 20 min']]))}
           ${row('Auto-advance', 'Move on after a correct answer once the answer has finished playing.', chk('autoAdvance', 'On'))}
           ${row('Your call first', 'With the microphone on, every third singing round asks for your own grade before the app shows what it heard. Judging your singing before you are told is what trains the ear.', chk('guessFirst', 'On'))}
-          ${row('Sing it back first', 'With the microphone on, each dictation melody is sung back before you name its notes. The echo is checked but not scored.' + (micPref() === 'off' ? ' Off while the microphone is set to Myself.' : ''), chk('singBack', 'On'))}
+          ${row('Sing it back first', 'With the microphone on, each Melodic Dictation melody is sung back before you name its notes. The echo is checked but not scored.' + (micPref() === 'off' ? ' Off while the microphone is set to Myself.' : ''), chk('singBack', 'On'))}
           ${row('Clap rhythms', 'With the microphone on, a rhythm can be clapped as well as tapped. Keep quiet during the get-ready clicks: the app measures the room then.' + (micPref() === 'off' ? ' Off while the microphone is set to Myself.' : ''), chk('clap', 'On'))}
-          ${row('Dictation playback', 'Hear each note or chord as you enter it. Easier, but less training of your inner ear.', chk('dictationSound', 'On'))}
+          ${row('Dictation playback', 'Hear each note, chord or rhythm figure as you enter it, and in Full Dictation play what you wrote before you check it. Easier, but less training of your inner ear.', chk('dictationSound', 'On'))}
           ${row('Singing range', 'Where the answer note plays in singing questions, and the clef Sight-Singing writes its melodies in.', sel('voice', CUR.VOICE_LABELS))}
           ${micAvailable() ? '<div class="row"><button class="btn ghost" data-act="micRange">Find my range</button><span class="muted" id="micRangeOut" role="status" style="font-size:13px">Sing a slow slide from your lowest comfortable note to your highest, and the app picks the range for you.</span></div>' : ''}
           ${row('Microphone', micPrefNote(), micAvailable() ? `<select id="pref-mic" data-change="micPref">${micPref() ? '' : '<option value="" selected disabled>Not chosen: asks at the next set that can listen</option>'}<option value="on" ${micPref() === 'on' ? 'selected' : ''}>With the microphone</option><option value="off" ${micPref() === 'off' ? 'selected' : ''}>Myself</option></select>${MIC.prefErr === 'dismissed' ? ' <button class="btn ghost" data-act="micAsk">Ask again</button>' : ''}` : '<span class="muted" style="font-size:13px">Myself</span>')}

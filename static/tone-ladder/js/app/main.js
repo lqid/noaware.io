@@ -3,6 +3,7 @@ import { $, A, S, TL, applyAudio, deviceInfo, micCopy, requestWake, safeAudio, s
 import { R, app } from './state.js';
 import { keyHints } from './answer-view.js';
 import { answerActions, answerChoice, seqBack, seqPick, seqSubmit, singGrade, singGuess, singReveal } from './answer.js';
+import { dictKey, dictationActions } from './dictation.js';
 import { EX, exTonic, exploreActions } from './explore.js';
 import { MIC, micActions, micFinish, micGo, micPause, micResume, setMicPref } from './mic.js';
 import { midiActions, midiNote, midiReconnect, midiSupported } from './midi.js';
@@ -47,6 +48,7 @@ import { MU, PL, musicOpen, renderMusicState, yourMusicActions } from './your-mu
     ...trackActions,
     ...sessionActions,
     ...answerActions,
+    ...dictationActions,
     ...midiActions,
     ...micActions,
     ...rhythmActions,
@@ -149,6 +151,8 @@ import { MU, PL, musicOpen, renderMusicState, yourMusicActions } from './your-mu
       return;
     }
     if (!q) return;
+    // Full Dictation takes its own keys first while it is answered; Space stays here
+    if (q.kind === 'dictation' && dictKey(e)) return;
     if (q.kind === 'tap') {
       if (e.code === 'Space' || k === 'j' || k === 'f') {
         e.preventDefault();
@@ -160,6 +164,7 @@ import { MU, PL, musicOpen, renderMusicState, yourMusicActions } from './your-mu
     }
     if (e.code === 'Space') {
       e.preventDefault();
+      if (e.repeat) return; // a held Space plays once: in Full Dictation each play is a hearing
       if (q.kind === 'sing' && R.phase === 'revealed') playPart('reveal');
       else if (q.kind === 'sing' && R.phase === 'feedback' && q.audio.parts.model) playPart('model');
       else playPart('main');
@@ -167,8 +172,8 @@ import { MU, PL, musicOpen, renderMusicState, yourMusicActions } from './your-mu
     }
     if (k === 'Enter') {
       e.preventDefault();
-      // a held Enter must not run Done, accept and next in one go
-      if (q.kind === 'sing' && e.repeat) return;
+      // a held Enter must not run Done, accept and next in one go (or Check and next)
+      if ((q.kind === 'sing' || q.kind === 'dictation') && e.repeat) return;
       if (R.phase === 'feedback') nextQuestion();
       else if (q.kind === 'sequence' && R.phase === 'answering' && R.mic && R.mic.state === 'paused') micResume();
       else if (q.kind === 'sequence' && R.phase === 'answering' && R.mic && ['listening', 'quiet', 'missed'].includes(R.mic.state) && !R.input.every(Boolean)) micFinish(true);

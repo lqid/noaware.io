@@ -11,7 +11,8 @@ globalThis.Date = class extends RealDate {
   constructor(...a) { if (a.length) super(...a); else super(RealDate.now() + offset); }
   static now() { return RealDate.now() + offset; }
 };
-const nextDay = () => { offset += 86400000; };
+// noon on the next calendar day: 24 hours on can still be the same date where the clocks go back
+const nextDay = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(12, 0, 0, 0); offset += d - new Date(); };
 let mem = {};
 globalThis.localStorage = { getItem: (k) => mem[k] ?? null, setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } };
 for (const f of ['theory.js', 'curriculum.js', 'store.js']) vm.runInThisContext(fs.readFileSync(path.join(dir, 'js', f), 'utf8'), { filename: f });
@@ -20,6 +21,17 @@ let bad = 0;
 const check = (ok, msg) => { if (!ok) { bad++; console.log('FAIL', msg); } else console.log('ok  ', msg); };
 let turn = 0;
 const answer = (id, r = 1) => { const t = S.track(id); const lv = TL.Curriculum.TRACK[id].levels[t.level]; S.record({ track: id, level: t.level, items: [lv.items[turn++ % lv.items.length]], results: [r] }); return S.maybeLevelUp(id); };
+
+// the clock itself: nextDay reaches the next date on the night New York's clocks go back
+{
+  const tz = process.env.TZ, o = offset;
+  process.env.TZ = 'America/New_York';
+  offset = Date.parse('2026-11-01T04:30:00Z') - RealDate.now();
+  const was = new Date().getDate(); nextDay(); const is = new Date().getDate();
+  if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
+  offset = o;
+  check(is === was + 1, `nextDay moves the date on where the clocks go back (got ${was} November, then ${is})`);
+}
 
 // 1. twenty right answers in one day fill the window but do not level up
 let g = S.toGo('degrees');
@@ -107,6 +119,23 @@ check(S.track('sight').level === 1, 'Sight level 2 does not open while Sing has 
 S.track('sing').maxLevel = 7;
 let up = null; for (let i = 0; i < 2 && up === null; i++) up = answer('sight', 1);
 check(S.track('sight').level === 2, 'Sight level 3 opens once Sing reaches level 8');
+
+// 9. Full Dictation: locked until Melody level 3 and Rhythm level 2; its level 2 waits for Melody
+//    level 4; a format-8 save loads as format 9 with the track at its start
+S.state = S.parseBackup(JSON.stringify({ settings: {}, tracks: {} }));
+check(!S.isUnlocked('dictation') && S.prereqText('dictation') === 'Melodic Dictation level 3 (Leaps in the home chord) and Rhythm level 2 (Rests and long notes)', `Full Dictation is locked on a fresh store (${S.prereqText('dictation')})`);
+S.track('melody').maxLevel = 2;
+check(!S.isUnlocked('dictation') && S.prereqText('dictation') === 'Rhythm level 2 (Rests and long notes)', 'Melody level 3 alone does not open it');
+S.track('rhythm').maxLevel = 1;
+check(S.isUnlocked('dictation'), 'Full Dictation opens at Melody level 3 and Rhythm level 2');
+// a question's notes, as commit passes them: results per name and figure, scores per note
+const dict = (scores) => { const t = S.track('dictation'); S.record({ track: 'dictation', level: t.level, items: ['2', '3', 'q', 'h'], results: [1, 1, 1, 1], scores }); return S.maybeLevelUp('dictation'); };
+for (let d = 0; d < 2; d++) { for (let i = 0; i < 3; i++) dict(Array(6).fill(1)); nextDay(); }
+check(S.mastery('dictation').ready && S.track('dictation').level === 0 && S.nextNeeds('dictation').track === 'melody', 'Dictation level 2 does not open while Melody has not reached level 4');
+S.track('melody').maxLevel = 3;
+check(dict([1, 1, 1]) === 1, 'Dictation level 2 opens once Melody reaches level 4');
+S.state = S.parseBackup(JSON.stringify({ v: 8, settings: {}, tracks: { melody: { level: 2, maxLevel: 2 }, rhythm: { level: 1, maxLevel: 1 } } }));
+check(S.state.v === S.FORMAT && S.FORMAT === 9 && S.track('dictation').level === 0 && S.isUnlocked('dictation'), 'a format-8 save loads as format 9, with Full Dictation at level 1, open');
 
 console.log(bad ? `${bad} problems` : 'progress checks OK');
 process.exitCode = bad ? 1 : 0;

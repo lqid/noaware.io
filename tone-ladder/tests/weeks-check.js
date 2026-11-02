@@ -105,6 +105,15 @@ S.reset(); for (let k = 0; k < 8; k++) S.recordPitch('sing', it('sing'), 19, -19
 check(S.weekly('sing').weeks[11].lean === null, '19 cents flat on average leans neither way');
 S.reset(); for (let k = 0; k < 8; k++) S.recordPitch('sing', it('sing'), 20, -20);
 check(S.weekly('sing').weeks[11].lean === 'low', '20 cents flat on average leans low');
+// Full Dictation: a week is a point from 8 questions, and its answers keep no time (writing takes most of it)
+S.reset();
+for (let k = 0; k < 7; k++) S.record({ track: 'dictation', level: 0, items: ['2', 'q'], results: [1, 1], scores: [1, 1, 0.5], rt: 2000 });
+cur = S.weekly('dictation').weeks[11];
+check(cur.acc === null && cur.q === 7 && TRACK.dictation.weekMin === 8, '7 Full Dictation questions are too few for a point');
+S.record({ track: 'dictation', level: 0, items: ['2', 'q'], results: [1, 1], scores: [1, 1, 0.5], rt: 0, early: true });
+cur = S.weekly('dictation').weeks[11];
+check(Math.abs(cur.acc - 0.83) < 1e-9 && cur.q === 8, `8 make a point, each question scored by its notes (got ${cur.acc})`);
+check(!today().rt && cur.rn === 0 && S.weekly('dictation').timedFrom === null, 'Full Dictation keeps no answer times, timed or early');
 // answer times are dated from the first day a track kept one
 S.reset();
 check(S.weekly('intervals').timedFrom === null, 'no answer times: none kept yet');
@@ -168,7 +177,7 @@ answer('degrees', [1], 1500);
 const v7 = JSON.parse(S.exportText()).state;
 v7.v = 7; for (const d of Object.values(v7.days)) { delete d.rt; delete d.cl; }
 let st = S.parseBackup(JSON.stringify(v7));
-check(st.v === S.FORMAT && S.FORMAT === 8 && Object.values(st.days).every((d) => !('rt' in d) && !('cl' in d)), 'a format-7 save loads as format 8, with no answer times or intonation');
+check(st.v === S.FORMAT && S.FORMAT >= 8 && Object.values(st.days).every((d) => !('rt' in d) && !('cl' in d)), 'a format-7 save loads in the current format, with no answer times or intonation');
 const junk = JSON.parse(S.exportText()).state;
 junk.days['2026-10-01'] = {
   q: 3, c: 2, s: 60, t: {},

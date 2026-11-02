@@ -151,12 +151,33 @@ an octave up, as tenor parts are), a high one the treble clef; what is written i
 what is graded, and any octave counts. After singing, the notes the app heard wrong turn red on
 the staff, once the learner has made their own call. Adding the track bumped the save format to 7.
 
+Full Dictation (`dictation` in `js/curriculum.js`) is the ninth track: a short melody heard after the
+four chords and a bar of clicks, written down as its rhythm and then its notes, until it stands on a
+staff. It opens once Melodic Dictation reaches level 3 and Rhythm level 2, and a level that brings a
+note or a figure those tracks teach later waits for their level. The rhythm is written from the
+level's beat figures (a quarter, a half, two eighths, a dotted quarter and an eighth…): each starts on
+a beat and never crosses a bar line, so a wrong length cannot move a note past its bar. The names
+come after the rhythm, on the notes written, from Do as in Melodic Dictation (the entry and its
+rules are `TL.Dict` in `js/theory.js`; the screens are `js/app/dictation.js` and
+`js/app/dictation-view.js`). Check grades every note twice (`TL.gradeDictation`): its length by time
+(a written note on the melody note's beat with its length) and its name by aligning the written
+names with the melody's, so one note missed or added does not make every later name wrong. Mastery
+reads the last 30 notes rather than 20 answers. The melody plays on the organ, the one voice whose
+note lengths can be heard. The first time it plays, nothing can be written: listen first. It can be
+heard four times, the first included (the chords and Play Do are free), and a fifth hearing makes the
+round practice. It shares the daily Focus set with Melodic Dictation, is left out of Mixed review,
+and has no answer-speed chart, since most of its time is writing. Adding the track bumped the save
+format to 9.
+
 Answers can be written on a staff (`js/notation.js`: a renderer with its own clef and accidental
 paths, no font; notes spelled by scale degree from the key the app names, minor and the modes
 from the same Do). After an answer the feedback shows what sounded on a staff in the key with the
 names underneath (Preferences → The answer on a staff), rhythms as rhythmic notation on their
 intro cards and after a try, and Answer notes on → A staff makes the staff the control: the mode's
 degrees on their lines and spaces, with an Altered notes toggle where a question offers Fi or Te.
+For Full Dictation the staff also draws a time signature, beams the eighths of a beat together, and
+writes a note not yet named as a slash head on the middle line and an empty beat as a dashed box;
+a phone splits four bars into two systems of two.
 
 Your music (the Music tab) works on a recording of the learner's own: open a file, loop a
 passage, slow it down without changing the pitch (the browser's own `preservesPitch`), hold a
@@ -195,10 +216,11 @@ Safari, so those two still take a paste. Links need the browser's compression st
 
 Progress → Week by week charts one track at a time over twelve rolling weeks, the last ending
 today (`S.weekly` in `js/store.js`, drawn as SVG in `js/app/progress.js`): accuracy for every
-track, the time to a right answer for Degrees, Intervals, Chords and Harmony (not Melody, whose
-time can include singing the melody back), and intonation for Sing and Sight-Singing. A week sums
-its answers rather than averaging its days, and becomes a point only with enough of them: 20
-answers, 10 timed right answers, or 8 sung answers the microphone checked. Practice rounds never
+track, the time to a right answer for Degrees, Intervals, Chords and Harmony (not Melody or Full
+Dictation, whose time can include singing the melody back or writing it down), and intonation for
+Sing and Sight-Singing. A week sums its answers rather than averaging its days, and becomes a point
+only with enough of them: 20 answers (8 in Full Dictation), 10 timed right answers, or 8 sung
+answers the microphone checked. Practice rounds never
 count, and an answer given while the question is still sounding counts as answered in no time. A
 dashed line marks each new level and the line breaks there, and the sentence under a chart never
 calls a step back after a new level a decline. Hover or tap a week for its numbers; a table under
@@ -244,7 +266,8 @@ every level, progress and level-ups (the twenty-answer window, the two-day rule,
 newer-format guard, device settings), export and import, that every item a level introduces turns
 up in its questions, that the notes a Sing question asks for stay in the chosen voice's range,
 that the offline copy lists every file the page loads, that notation spells every degree in every
-key, that the key estimate finds the key of a plain progression, that a link carries the progress,
+key, that Full Dictation's melodies keep their level's rules and that what is written is what plays
+and what is graded, note by note, that the key estimate finds the key of a plain progression, that a link carries the progress,
 that a long history still makes a short enough link, what the weekly charts are built from (each
 answer's share of the day, the minimums, weeks across the clock changes, the half-year trim),
 that the sample build measures a note, that the app's modules hold together, and that the app

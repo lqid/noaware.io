@@ -5,9 +5,9 @@ import { R } from './state.js';
   // ======================================================================
   // DAILY PLAN
   // ======================================================================
-  const SEC_PER = { degrees: 13, intervals: 10, chords: 10, harmony: 28, melody: 30, rhythm: 26, sing: 18, sight: 24, mix: 16 };
-  const FOCUS_COUNT = { intervals: 10, chords: 10, harmony: 5, melody: 6, rhythm: 6, sight: 5 };
-  const FREE_COUNT = { degrees: 20, intervals: 20, chords: 20, harmony: 8, melody: 10, rhythm: 10, sing: 8, sight: 8 };
+  const SEC_PER = { degrees: 13, intervals: 10, chords: 10, harmony: 28, melody: 30, rhythm: 26, dictation: 80, sing: 18, sight: 24, mix: 16 };
+  const FOCUS_COUNT = { intervals: 10, chords: 10, harmony: 5, melody: 6, rhythm: 6, dictation: 3, sight: 5 };
+  const FREE_COUNT = { degrees: 20, intervals: 20, chords: 20, harmony: 8, melody: 10, rhythm: 10, dictation: 6, sing: 8, sight: 8 };
   function buildDailyPlan() {
     const k = S.settings.dailyGoal / 30;
     const n = (x, min) => Math.max(min, Math.round(x * k));
@@ -17,8 +17,15 @@ import { R } from './state.js';
     const core = { track: 'degrees', count: n(10, 6), role: 'Core' };
     const plan = S.track('degrees').last ? [tuneIn, core] : [core];
     const rest = unlocked.filter((id) => id !== 'degrees' && id !== 'sing');
+    // Melodic and Full Dictation share one Focus set: the one practiced less recently, but Melody
+    // while Full Dictation's level is full and waits for a Melody level
+    if (rest.includes('melody') && rest.includes('dictation')) {
+      const gate = S.mastery('dictation').full && S.nextNeeds('dictation');
+      const melody = (gate && gate.track === 'melody') || (S.track('melody').last || 0) <= (S.track('dictation').last || 0);
+      rest.splice(rest.indexOf(melody ? 'dictation' : 'melody'), 1);
+    }
     // least recently practiced first; ties (day one) start with the track that needs no note names
-    const ORDER = ['chords', 'intervals', 'rhythm', 'melody', 'harmony', 'sight'];
+    const ORDER = ['chords', 'intervals', 'rhythm', 'melody', 'dictation', 'harmony', 'sight'];
     rest.sort((a, b) => (S.track(a).last || 0) - (S.track(b).last || 0) || ORDER.indexOf(a) - ORDER.indexOf(b));
     rest.slice(0, S.settings.dailyGoal >= 45 ? 2 : 1).forEach((id) => plan.push({ track: id, count: n(FOCUS_COUNT[id], 3), role: 'Focus' }));
     plan.push({ track: 'mix', count: n(8, 4), role: 'Mixed review' });
@@ -49,8 +56,9 @@ import { R } from './state.js';
   const planLeft = (p) => !!p && p.blocks.some((b) => b.done < b.count);
   const dropPlan = () => { try { localStorage.removeItem(PLAN_KEY); } catch (e) { /* blocked */ } };
   const savePlanNow = () => { if (R && R.daily) storePlan(R.plan, R.planDay); };
+  // Mixed review leaves out the sung tracks, and Full Dictation, whose questions are too long to shuffle in
   function reviewable() {
-    return TRACKS.map((t) => t.id).filter((id) => !sungTrack(id) && S.isUnlocked(id) && S.track(id).intro[S.track(id).level] && S.track(id).last);
+    return TRACKS.map((t) => t.id).filter((id) => !sungTrack(id) && id !== 'dictation' && S.isUnlocked(id) && S.track(id).intro[S.track(id).level] && S.track(id).last);
   }
   const planMinutes = (plan) => Math.max(3, Math.round(plan.reduce((a, b) => a + b.count * (SEC_PER[b.track] || 15), 0) / 60));
 

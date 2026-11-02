@@ -310,4 +310,4 @@ import { micResultHTML } from './sing-view.js';
       <div class="legend"><span><i style="background:var(--ink-2)"></i>the melody</span><span><i style="background:transparent;border:2px dashed var(--bad)"></i>where you placed a wrong note</span></div>`;
   }
 
-export { choiceBodyHTML, feedbackHTML, keyHints, ladderHTML, levelUpHTML, renderSeq, rhythmStaff, seqBodyHTML, struggleHTML };
+export { choiceBodyHTML, feedbackHTML, keyHints, ladderHTML, levelUpHTML, notesHTML, renderSeq, rhythmStaff, seqBodyHTML, struggleHTML };

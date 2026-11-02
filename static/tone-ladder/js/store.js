@@ -7,10 +7,11 @@
   const LS_KEY = 'tone-ladder-v1';
   // The saved-data format. A copy of the app that finds a higher number was written by newer code:
   // it leaves that progress alone (no cleaning, no saving) and asks for a reload.
-  const FORMAT = 8; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap; 6: notation, input staff; 7: the Sight-Singing track; 8: answer times and intonation per day
+  const FORMAT = 9; // 3: intonation samples on items, self-check tallies, the guessFirst setting; 4: singBack; 5: input, clap; 6: notation, input staff; 7: the Sight-Singing track; 8: answer times and intonation per day; 9: the Full Dictation track
   // Settings that belong to one device (latency calibration, loudness, tempo) and never travel with progress.
   const DEVICE_KEYS = ['tapOffsetMs', 'volume', 'speed'];
-  const WINDOW = 20;           // recent answers that decide mastery
+  const WINDOW = 20;           // recent answers that decide mastery (a track can set its own window)
+  const windowOf = (id) => TRACK[id].window || WINDOW;
   const BOX_DAYS = [0, 1, 2, 4, 8, 16, 32];
 
   const DEFAULT_SETTINGS = {
@@ -62,7 +63,8 @@
   // how far off its sung answers were (cl: [answers, cents off, signed cents]), for the weekly charts:
   // kept half a year, while the rest of the log keeps its last 420 days of practice.
   const DETAIL_DAYS = 182;
-  // the fewest answers that make a week worth a point on a chart: accuracy, answer time, intonation
+  // the fewest answers that make a week worth a point on a chart: accuracy (a track can set its own,
+  // weekMin), answer time, intonation
   const WEEK_MIN = { q: 20, rt: 10, cl: 8 };
   // ---------- cleaning loaded state ----------
   // Saved progress comes back from localStorage, the claude.ai account and pasted backups, so it is
@@ -104,7 +106,7 @@
     };
     // window and level statistics belong to the level; drop them if that level had to be moved
     if (level === num(t.level)) {
-      if (Array.isArray(t.window)) out.window = t.window.filter((x) => Number.isFinite(x)).map((x) => clampN(x, 0, 1)).slice(-40);
+      if (Array.isArray(t.window)) out.window = t.window.filter((x) => Number.isFinite(x)).map((x) => clampN(x, 0, 1)).slice(-2 * windowOf(id));
       // one day number per answer; answers saved before days were kept count as an earlier day (0)
       const days = Array.isArray(t.windowDays) ? t.windowDays.filter((x) => Number.isFinite(x)) : [];
       out.windowDays = [...Array(Math.max(0, out.window.length - days.length)).fill(0), ...days].slice(-out.window.length || 0);
@@ -365,21 +367,22 @@
     mastery(id) {
       const t = this.track(id);
       const lv = TRACK[id].levels[t.level];
-      const win = t.window.slice(-WINDOW);
+      const W = windowOf(id);
+      const win = t.window.slice(-W);
       const sum = win.reduce((a, b) => a + b, 0);
       const threshold = TRACK[id].selfGraded ? 0.8 : 0.9;
-      const need = Math.ceil(WINDOW * threshold);
+      const need = Math.ceil(W * threshold);
       const newOk = lv.items.length === 1 || (lv.introduce || []).every((it) => {
         const s = t.levelStats[it];
         return s && s.n >= 3 && s.c / s.n >= 0.66;
       });
       const isLast = t.level >= this.levelCount(id) - 1;
       // a level-up needs answers from at least two different days, so sleep has a chance to confirm it
-      const days = new Set((t.windowDays || []).slice(-WINDOW));
+      const days = new Set((t.windowDays || []).slice(-W));
       const dayOk = days.size >= 2 || t.level < t.maxLevel;
-      const full = win.length >= WINDOW && sum >= need && newOk;
+      const full = win.length >= W && sum >= need && newOk;
       return {
-        correct: Math.round(sum * 10) / 10, n: win.length, need, window: WINDOW,
+        correct: Math.round(sum * 10) / 10, n: win.length, need, window: W,
         acc: win.length ? sum / win.length : 0,
         pct: Math.min(1, sum / need),
         newOk, dayOk, full, ready: full && dayOk,
@@ -393,11 +396,12 @@
       const lv = TRACK[id].levels[t.level];
       const m = this.mastery(id);
       if (t.complete) return { complete: true };
-      const w = t.window.slice(-WINDOW);
+      const W = windowOf(id);
+      const w = t.window.slice(-W);
       let answers = 0;
-      while (answers < 2 * WINDOW) {
-        const recent = w.slice(-WINDOW);
-        if (recent.length >= WINDOW && recent.reduce((a, b) => a + b, 0) >= m.need) break;
+      while (answers < 2 * W) {
+        const recent = w.slice(-W);
+        if (recent.length >= W && recent.reduce((a, b) => a + b, 0) >= m.need) break;
         w.push(1); answers++;
       }
       const items = lv.items.length === 1 ? [] : (lv.introduce || []).map((it) => {
@@ -405,9 +409,9 @@
         return { item: it, more: Math.max(0, 3 - s.n, Math.ceil((0.66 * s.n - s.c) / 0.34)) };
       }).filter((x) => x.more > 0);
       // the window after the answers still needed, all given today: does it span two days?
-      const d = (t.windowDays || []).slice(-WINDOW);
+      const d = (t.windowDays || []).slice(-W);
       for (let i = 0; i < answers; i++) d.push(todayNum());
-      const needsDay = t.level >= t.maxLevel && new Set(d.slice(-WINDOW)).size < 2;
+      const needsDay = t.level >= t.maxLevel && new Set(d.slice(-W)).size < 2;
       return { answers, items, needsDay, full: m.full, gate: this.nextNeeds(id), isLast: m.isLast };
     },
     // Promote when the mastery bar is full. Returns the new level index or null.
@@ -487,10 +491,13 @@
       return TL.weightedPick(entries) ?? pool[0];
     },
 
-    // Record one answered question. results: one score (0..1) per stats item.
+    // Record one answered question. results: one score (0..1) per stats item. scores: what goes into
+    // the mastery window and the day's accuracy, when that is not the results (Full Dictation scores
+    // each note of the melody, and each extra note it was given, while its results are per name and
+    // per figure).
     // Practice rounds (the answer was played first) count toward the day's goal but not toward
     // accuracy, review scheduling or mastery.
-    record({ track, level, items, results, rt = 0, confusions = [], practice = false, early = false }) {
+    record({ track, level, items, results, scores = results, rt = 0, confusions = [], practice = false, early = false }) {
       const st = this.state;
       const now = Date.now();
       const today = todayNum();
@@ -526,28 +533,29 @@
         }
       });
       if (level === t.level) {
-        t.window.push(...results.map((r) => Math.round(r * 100) / 100));
-        t.windowDays = [...(t.windowDays || []), ...results.map(() => today)];
-        if (t.window.length > 40) t.window = t.window.slice(-40);
+        t.window.push(...scores.map((r) => Math.round(r * 100) / 100));
+        t.windowDays = [...(t.windowDays || []), ...scores.map(() => today)];
+        if (t.window.length > 2 * windowOf(track)) t.window = t.window.slice(-2 * windowOf(track));
         t.windowDays = t.windowDays.slice(-t.window.length);
       }
       t.last = now;
+      // a melody's names are notes of the key, as in Degrees; Full Dictation's figures are rhythms
       for (const [asked, said] of confusions) {
-        const ct = track === 'melody' ? 'degrees' : track;
+        const ct = track === 'melody' || (track === 'dictation' && TL.DEG[asked]) ? 'degrees' : track === 'dictation' ? 'rhythm' : track;
         const m = st.conf[ct] || (st.conf[ct] = {});
         const key = asked + '>' + said;
         m[key] = (m[key] || 0) + 1;
       }
       const d = this.dayRec();
       d.q += 1;
-      const score = results.length ? results.reduce((a, b) => a + b, 0) / results.length : 0;
+      const score = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
       d.c += Math.round(score * 100) / 100;
       const td = d.t[track] || (d.t[track] = [0, 0]);
       td[0] += 1; td[1] += Math.round(score * 100) / 100;
       // the time to a right answer, for the weekly chart: not Melody's, whose time can include singing
-      // the melody back; a sequence's time is already per note or chord; an answer given while the
-      // sound still played (early) counts as no time at all
-      if (track !== 'melody' && results.length && results.every((r) => r >= 0.99) && (early || (rt > 0 && rt < 30000))) {
+      // the melody back, nor Full Dictation's, which is mostly writing; a sequence's time is already
+      // per note or chord; an answer given while the sound still played (early) counts as no time at all
+      if (track !== 'melody' && track !== 'dictation' && results.length && results.every((r) => r >= 0.99) && (early || (rt > 0 && rt < 30000))) {
         const m = d.rt || (d.rt = {});
         const a = m[track] || (m[track] = [0, 0]);
         a[0] += 1; a[1] += early ? 0 : Math.round(Math.min(rt, 15000) / 100);
@@ -702,7 +710,7 @@
         }
         const cents = pn >= WEEK_MIN.cl ? ab / pn : null;
         weeks.push({
-          from, to, q, acc: q >= WEEK_MIN.q ? c / q : null, rn, sec: rn >= WEEK_MIN.rt ? ds / rn / 10 : null, pn, cents,
+          from, to, q, acc: q >= (TRACK[track].weekMin || WEEK_MIN.q) ? c / q : null, rn, sec: rn >= WEEK_MIN.rt ? ds / rn / 10 : null, pn, cents,
           lean: cents != null && Math.abs(sg / pn) >= 20 ? (sg < 0 ? 'low' : 'high') : null,
         });
       }

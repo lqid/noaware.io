@@ -74,8 +74,8 @@ import { gateText, toGoText } from './today.js';
   function itemOrder(trackId) {
     const seen = [];
     for (const lv of TRACK[trackId].levels) for (const it of lv.items || lv.pool || []) if (!seen.includes(it)) seen.push(it);
-    // scale degrees in scale order; anything else a track lists (the modes) after them, as listed
-    if (trackId === 'degrees' || trackId === 'melody') seen.sort((a, b) => (DEG[a] ? DEG[a].semi : 99) - (DEG[b] ? DEG[b].semi : 99));
+    // scale degrees in scale order; anything else a track lists (the modes, Full Dictation's figures) after them, as listed
+    if (trackId === 'degrees' || trackId === 'melody' || trackId === 'dictation') seen.sort((a, b) => (DEG[a] ? DEG[a].semi : 99) - (DEG[b] ? DEG[b].semi : 99));
     return seen;
   }
 

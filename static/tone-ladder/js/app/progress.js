@@ -126,10 +126,10 @@ import { itemOrder } from './track.js';
   // ---------- week by week ----------
   // One track's last twelve weeks: accuracy for every track, the time to a right answer for the
   // tracks answered by choosing, intonation for the sung ones. A week is a dot once it has enough
-  // answers (S.WEEK_MIN); the line breaks at a new level, since a new level is harder (finishing the
+  // answers (S.WEEK_MIN, or the track's own weekMin); the line breaks at a new level, since a new level is harder (finishing the
   // track is marked too, but the last level stays in review, so the line goes on).
   const WEEKS = 12;
-  const timedTrack = (id) => !sungTrack(id) && id !== 'melody' && id !== 'rhythm';
+  const timedTrack = (id) => !sungTrack(id) && id !== 'melody' && id !== 'rhythm' && id !== 'dictation'; // Full Dictation's time is mostly writing
   const keyDate = (k) => new Date(k + 'T12:00:00');
   const shortDate = (k) => keyDate(k).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -146,7 +146,7 @@ import { itemOrder } from './track.js';
       // up or down: 5 percentage points or more, as shown
       cmp: (a, b) => { const d = Math.round(a * 100) - Math.round(b * 100); return Math.abs(d) < 5 ? 0 : Math.sign(d); }, words: ['Down from', 'Up from'],
       harder: 'a new level is harder',
-      empty: (id) => `A week shows here once it has ${S.WEEK_MIN.q} answers in ${TRACK[id].name}.`,
+      empty: (id) => `A week shows here once it has ${TRACK[id].weekMin || S.WEEK_MIN.q} answers in ${TRACK[id].name}.`,
     },
     sec: {
       title: 'Answer speed', min: 'rt', count: 'rn', noun: 'right answer',

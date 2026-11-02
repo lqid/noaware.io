@@ -15,8 +15,9 @@ for (const tr of TL.Curriculum.TRACKS) {
       const q = tr.generate(L, { tonic: 60, withContext: true });
       for (const s of q.stats) seen[s] = (seen[s] || 0) + 1;
     }
-    // a rhythm level's card lists every cell, so every cell must be able to come up
-    const expect = tr.id === 'rhythm' ? lv.cells : (lv.introduce || []);
+    // a rhythm level's card lists every cell, so every cell must be able to come up; so does a
+    // Full Dictation level's palette
+    const expect = tr.id === 'rhythm' || tr.id === 'dictation' ? lv.cells : (lv.introduce || []);
     const missing = expect.filter((x) => !seen[x]);
     const rare = (lv.introduce || []).filter((x) => seen[x] && seen[x] < 30);
     if (missing.length || rare.length) { bad++; console.log(tr.id, 'L' + (L + 1), 'missing', missing, 'rare', rare.map((x) => x + ':' + seen[x])); }

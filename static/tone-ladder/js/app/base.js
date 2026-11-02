@@ -81,18 +81,23 @@
       case 'harmony': return lv.type === 'modulate' ? 'Stays home · to V · to IV · to vi' : lv.pool.join(' · ') + (lv.mode === 'minor' ? ' · minor' : '');
       case 'melody': return `${lv.length} notes · ` + lv.items.map((i) => degText(i).main).join(' ');
       case 'rhythm': return lv.cells.map((c) => TL.RCELLS[c].label).join(' · ') + (lv.meter ? ' · ' + lv.meter : '');
+      case 'dictation': {
+        const m = [].concat(lv.meter); // one meter, or one of several per question
+        return `${m.length > 1 ? m.slice(0, -1).join(', ') + ' or ' + m[m.length - 1] : m[0]} · ${lv.bars} bars · ` + lv.cells.map((c) => TL.RCELLS[c].label).join(' · ');
+      }
       case 'sight': return lv.summary;
       case 'sing': return { degree: lv.mode === 'minor' ? 'Sing notes of a minor key' : 'Sing notes of the key', read: `Sing ${lv.length}-note patterns`, echo: `Echo ${lv.length}-note melodies`, bass: 'Sing the lowest note of a chord', resolve: 'Sing a leaning note, then where it goes', tone: 'Sing a chord’s third, fifth or seventh', bassline: `Sing the bass line of ${lv.length} chords`, interval: 'Sing an interval above or below a given note' }[lv.type] + (lv.type === 'degree' ? ': ' + lv.items.map((i) => degText(i).main).join(' · ') : '');
       default: return '';
     }
   }
+  // Full Dictation's items are notes of the key (degree ids) and rhythm figures (anything else)
   function itemName(trackId, it) {
-    if ((trackId === 'degrees' || trackId === 'melody') && DEG[it]) return degText(it).main + (degText(it).sub ? ' ' + degText(it).sub : '');
+    if ((trackId === 'degrees' || trackId === 'melody' || trackId === 'dictation') && DEG[it]) return degText(it).main + (degText(it).sub ? ' ' + degText(it).sub : '');
     if (trackId === 'intervals') return TL.IV[it.slice(0, -1)].name + ' ' + DIR_ARROW[it.slice(-1)];
     return TRACK[trackId].itemLabel(it);
   }
   function itemHue(trackId, it) {
-    if ((trackId === 'degrees' || trackId === 'melody') && DEG[it]) return DEG[it].hue;
+    if ((trackId === 'degrees' || trackId === 'melody' || trackId === 'dictation') && DEG[it]) return DEG[it].hue;
     if (trackId === 'sing' && DEG[it]) return DEG[it].hue;
     if (trackId === 'harmony') return rnHue(it);
     return TRACK[trackId].hue;

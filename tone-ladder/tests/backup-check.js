@@ -79,6 +79,13 @@ check(sightBack.tracks.sight.level === 3 && sightBack.tracks.sight.maxLevel === 
 const sightBeyond = JSON.parse(text).state; sightBeyond.tracks.sight = { level: TL.Curriculum.TRACK.sight.levels.length, maxLevel: TL.Curriculum.TRACK.sight.levels.length };
 refused = false; try { S.parseBackup(JSON.stringify(sightBeyond)); } catch (e) { refused = /newer Tone Ladder/.test(e.message); }
 check(refused, 'a Sight-Singing level past the last was not refused as newer');
+// the same for Full Dictation
+const withDict = JSON.parse(text).state; withDict.tracks.dictation = { level: 5, maxLevel: 7, window: [1, 0.5, 0], windowDays: [3, 3, 4] };
+const dictBack = S.parseBackup(JSON.stringify(withDict));
+check(dictBack.tracks.dictation.level === 5 && dictBack.tracks.dictation.maxLevel === 7 && JSON.stringify(dictBack.tracks.dictation.window) === '[1,0.5,0]', 'Full Dictation did not survive a backup');
+const dictBeyond = JSON.parse(text).state; dictBeyond.tracks.dictation = { level: TL.Curriculum.TRACK.dictation.levels.length, maxLevel: TL.Curriculum.TRACK.dictation.levels.length };
+refused = false; try { S.parseBackup(JSON.stringify(dictBeyond)); } catch (e) { refused = /newer Tone Ladder/.test(e.message); }
+check(refused, 'a Full Dictation level past the last was not refused as newer');
 const unknownTrack = JSON.parse(text).state; unknownTrack.tracks.composition = { level: 0 };
 refused = false; try { S.parseBackup(JSON.stringify(unknownTrack)); } catch (e) { refused = /newer Tone Ladder/.test(e.message); }
 check(refused, 'unknown-track backup accepted');

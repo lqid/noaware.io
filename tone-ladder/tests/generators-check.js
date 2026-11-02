@@ -75,6 +75,20 @@ for (const tr of TRACKS) {
       } else if (q.kind === 'sing') {
         checkEvents(q.audio.main, where + ' main');
         checkEvents(q.audio.reveal, where + ' reveal');
+      } else if (q.kind === 'dictation') {
+        // what plays, what the written answer plays (exact, and as an empty entry), and each tap
+        const exact = TL.Dict.exact(q);
+        checkEvents(q.audio.main, where + ' main');
+        checkEvents(q.audio.reveal, where + ' reveal');
+        for (const p of Object.values(q.audio.parts)) checkEvents(p, where + ' part');
+        checkEvents(q.compare(exact), where + ' compare');
+        checkEvents(q.compare(exact, TL.gradeDictation(q, exact)), where + ' compare graded');
+        checkEvents(q.compare(TL.Dict.empty(q)), where + ' compare empty');
+        for (const o of q.options) checkEvents(q.tapSound(o.id, q.notes[0].semi), where + ' tap');
+        for (const c of q.palette) checkEvents(q.figSound(c), where + ' figure');
+        if (q.stats.length !== TL.gradeDictation(q, exact).results.length) fail(where + ': stats length');
+        const ids = new Set(q.options.map((o) => o.id));
+        for (const x of q.notes) if (!ids.has(x.id)) fail(where + ': note not among the options ' + x.id);
       } else fail(where + ': unknown kind ' + q.kind);
     }
     // intro

@@ -103,6 +103,10 @@
     restE: '<path d="M 3.5 -7 L -1.5 10 M 3.5 -7 C 3 -3 -1 -2 -2 -5" fill="none" stroke-width="1.8"/><circle cx="-2.2" cy="-5.5" r="2.2" stroke="none"/>',
     restS: '<path d="M 4 -7 L -3 14 M 4 -7 C 3.5 -3 -0.5 -2 -1.5 -5 M 1.8 1 C 1.3 5 -2.7 6 -3.7 3" fill="none" stroke-width="1.8"/><circle cx="-1.7" cy="-5.5" r="2.2" stroke="none"/><circle cx="-3.9" cy="2.5" r="2.2" stroke="none"/>',
   };
+  // a rhythm slash on the middle line, for a note whose pitch is not named yet: filled for a
+  // quarter and shorter, open for a half or a whole, as a head would be
+  GLYPH.slash = '<path d="M -8.5 8 L -2.5 8 L 8.5 -8 L 2.5 -8 Z" stroke="none"/>';
+  GLYPH.slashOpen = '<path d="M -8.5 8 L -2.5 8 L 8.5 -8 L 2.5 -8 Z" fill="none" stroke-width="1.6"/>';
   // a double sharp is a cross, a double flat two flats: a chord spelled from its root can need them
   GLYPH.dsharp = '<path d="M -4.2 -4.2 L 4.2 4.2 M -4.2 4.2 L 4.2 -4.2" fill="none" stroke-width="2.8"/>';
   GLYPH.dflat = `<g transform="translate(-8 0)">${GLYPH.flat}</g>${GLYPH.flat}`; // the right flat where a single one sits
@@ -126,6 +130,13 @@
   const restGlyph = (kind, flags) => GLYPH[kind === 'w' ? 'restW' : kind === 'h' ? 'restH' : flags === 2 ? 'restS' : flags ? 'restE' : 'restQ'];
   const flags = (x, tip, n, up) => { let s = ''; for (let f = 0; f < n; f++) s += at(x, tip + (up ? 7 : -7) * f, up ? GLYPH.flag : `<g transform="scale(1 -1)">${GLYPH.flag}</g>`); return s; };
 
+  // a time signature's bar and beat in ticks: a compound meter (6/8, 9/8, 12/8) beats in dotted
+  // quarters, the rest in their lower number's value
+  function meterOf(time) {
+    const [num = '4', den = '4'] = String(time).split('/'), unit = 48 / (Number(den) || 4);
+    return { num, den, bar: Number(num) * unit, beat: den === '8' && num % 3 === 0 && num > 3 ? 18 : unit };
+  }
+
   // The width asked for is the viewBox width; a layout that needs more is scaled down to fit.
   const wrap = (W, H, px, body) => `<svg xmlns="http://www.w3.org/2000/svg" class="notation" viewBox="0 0 ${r1(W)} ${r1(H)}" width="${px}" height="${r1((H * px) / W)}" style="max-width:100%;height:auto" role="img"><g fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${body}</g></svg>`;
   // spread the notes over the room there is, up to a limit so two notes do not sit a mile apart
@@ -144,36 +155,70 @@
   // notes: [{ midi, dur, rest, tie }] or chords [{ midis, dur }], dur in quarter-note beats
   // sig: false draws no signature, so every sharp or flat is written on its note (an interval or a
   // chord with no key). A note may carry its own letter (index 0..6) and is then spelled on it.
+  // time: '4/4', '3/4', '6/8'... drawn after the signature; it sets the bar (unless bars does) and
+  // the beat (unless beat does, in ticks: a system that goes on from one with the time signature
+  // keeps its beat without drawing it again). beam: flagged notes in one beat share a beam. A note
+  // may be a slash (its rhythm, no pitch yet), a blank (an empty beat) or under (ruled beneath: its
+  // length was wrong).
   function staff(o = {}) {
     const key = o.key || { tonic: 0, mode: 'major' }, notes = o.notes || [], px = o.width || 600, U = o.compact ? 0.6 : 0.8;
     const sig = o.sig === false ? {} : keySignature(key), nSig = sig.sharps || sig.flats || 0;
-    const sounding = notes.flatMap((n) => (n.rest ? [] : n.midis || [n.midi])).sort((a, b) => a - b);
+    const sounding = notes.flatMap((n) => (n.rest || n.slash || n.blank ? [] : n.midis || [n.midi])).sort((a, b) => a - b);
     const clef = MIDSTEP[o.clef] ? o.clef : sounding.length && sounding[sounding.length >> 1] < 60 ? 'bass' : 'treble'; // auto never picks treble8
     const MID = MIDSTEP[clef];
     const yOf = (step) => 20 - (step - MID) * 5; // from the top line; a step is half a space
     const hl = new Set(o.highlight || []);
+    const meter = o.time ? meterOf(o.time) : null, perBar = o.bars || (meter ? meter.bar / 12 : 0), beat = o.beat || (meter ? meter.beat : 12);
 
     // an accidental holds for its letter and octave until another note on it says otherwise, or a bar line
-    let active = {}, beats = 0;
+    let active = {}, beats = 0, tick = 0;
     const spellOn = (m, L) => { const acc = accFor(L, TL.mod12(m)); return { letter: LETTERS[L], acc, octave: Math.floor((m - acc) / 12) - 1 }; };
     const items = notes.map((n) => {
       const t = Math.round((n.dur || 1) * 12), [kind, fl, dots] = shapeOf(t);
-      if (o.bars && beats && Math.abs(beats / o.bars - Math.round(beats / o.bars)) < 1e-6) active = {};
+      if (perBar && beats && Math.abs(beats / perBar - Math.round(beats / perBar)) < 1e-6) active = {};
       beats += n.dur || 1;
       const letters = n.letters || (n.letter != null ? [n.letter] : null);
-      const heads = n.rest ? [] : (n.midis || [n.midi]).map((m, i) => {
+      // a slash stands on the middle line and is spelled as nothing; a blank has no head at all
+      const heads = n.rest || n.blank ? [] : n.slash ? [{ step: MID, acc: 0, shown: false }] : (n.midis || [n.midi]).map((m, i) => {
         const s = letters && letters[i] != null ? spellOn(m, letters[i]) : spell(m, key);
         const k = s.letter + s.octave, was = k in active ? active[k] : sigAcc(sig, s.letter);
         active[k] = s.acc;
         return { ...s, step: stepOf(s), shown: s.acc !== was };
       }).sort((a, b) => a.step - b.step);
-      const up = !heads.length || (heads[0].step + heads[heads.length - 1].step) / 2 < MID;
-      // stems down, a second puts its lower head left of the stem: the accidentals go further left
-      const shift = !up && heads.some((h, k) => k && h.step - heads[k - 1].step === 1) ? 11 : 0;
-      const accs = placeAccidentals(heads, yOf, shift);
-      const lead = Math.max(6 + shift, accs.length ? Math.ceil(-Math.min(...accs.map((p) => p.ax + p.l))) + 1 : 0);
-      return { n, kind, fl, dots, heads, up, shift, accs, lead, w: slot(t) + lead - 6 + (dots ? 5 : 0), tie: n.tie };
+      const up = !!n.slash || !heads.length || (heads[0].step + heads[heads.length - 1].step) / 2 < MID; // slashes stem up, as rhythm is written
+      const it = { n, kind, fl, dots, heads, up, t, tick, tie: n.tie };
+      tick += t;
+      return it;
     });
+    // Flagged notes in one beat with no rest between them share a beam and a stem direction: the
+    // note farthest from the middle line decides, then the majority. A slash has no say.
+    const groups = [];
+    const beamable = (k) => items[k].heads.length && items[k].fl, beatOf = (k) => Math.floor(items[k].tick / beat);
+    if (o.beam) for (let i = 0; i < items.length;) {
+      if (!beamable(i)) { i++; continue; }
+      let j = i;
+      while (j + 1 < items.length && beamable(j + 1) && beatOf(j + 1) === beatOf(i)) j++;
+      if (j > i) groups.push({ i, j });
+      i = j + 1;
+    }
+    for (const gr of groups) {
+      const its = items.slice(gr.i, gr.j + 1), named = its.filter((it) => !it.n.slash);
+      const steps = named.flatMap((it) => it.heads.map((h) => h.step));
+      const above = Math.max(...steps) - MID, below = MID - Math.min(...steps), votes = named.reduce((a, it) => a + (it.up ? 1 : -1), 0);
+      gr.up = !named.length || below > above || (below === above && votes > 0);
+      // a level beam, just past the stem that has to reach farthest
+      const tips = its.map((it) => (gr.up ? Math.min(yOf(it.heads[it.heads.length - 1].step) - 35, 20) : Math.max(yOf(it.heads[0].step) + 35, 20)));
+      gr.tip = gr.up ? Math.min(...tips) - 3 : Math.max(...tips) + 3;
+      for (const it of its) { it.up = gr.up; it.tip = gr.tip; }
+    }
+    for (const it of items) {
+      const { heads } = it;
+      // stems down, a second puts its lower head left of the stem: the accidentals go further left
+      it.shift = !it.up && heads.some((h, k) => k && h.step - heads[k - 1].step === 1) ? 11 : 0;
+      it.accs = placeAccidentals(heads, yOf, it.shift);
+      it.lead = Math.max(6 + it.shift, it.accs.length ? Math.ceil(-Math.min(...it.accs.map((p) => p.ax + p.l))) + 1 : 0);
+      it.w = slot(it.t) + it.lead - 6 + (it.dots ? 5 : 0);
+    }
     // room above and below the staff for whatever sticks out: ledger lines, stems, the clef
     let top = -28, bottom = clef === 'treble8' ? 74 : 68; // room for the 8 under the clef
     for (const it of items) if (it.heads.length) {
@@ -181,21 +226,38 @@
       top = Math.min(top, hi - (it.up ? 38 : 8)); bottom = Math.max(bottom, lo + (it.up ? 8 : 38));
       for (const h of it.heads) if (h.shown) { top = Math.min(top, yOf(h.step) - 20); bottom = Math.max(bottom, yOf(h.step) + 15); } // a flat reaches well above its head
     }
+    // a beam can sit past the stems it joins, and a triplet's 3 past the beam
+    for (const gr of groups) { const pad = items[gr.i].t === 4 ? 16 : 4; if (gr.up) top = Math.min(top, gr.tip - pad); else bottom = Math.max(bottom, gr.tip + pad); }
+    // a wrong length is ruled under its note, on one line for the staff, clear of everything drawn
+    let ruleY = 0;
+    if (items.some((it) => it.n.under)) {
+      ruleY = 46;
+      for (const it of items) if (it.heads.length) {
+        const lo = yOf(it.heads[0].step), stemTip = it.tip != null ? it.tip : Math.max(lo + 35, 20);
+        ruleY = Math.max(ruleY, lo + 10, !it.up && it.kind !== 'w' ? stemTip + 6 : 0, ...it.accs.map((p) => p.y + p.b + 4));
+      }
+      bottom = Math.max(bottom, ruleY + 6);
+    }
     const chordRow = o.chords && o.chords.length ? 18 : 0, lyricRow = o.lyrics && o.lyrics.some(Boolean) ? 20 : 0;
     const sTop = chordRow - top, H = sTop + bottom + lyricRow;
+    const under = (x1, x2) => ln(x1, sTop + ruleY, x2, sTop + ruleY, 2, 'under');
 
-    // horizontal layout: clef, signature, then the notes spread over the width, bar lines between
+    // horizontal layout: clef, signature, time, then the notes spread over the width, bar lines between
     const x0 = 8;
     const sigX = x0 + 34;
     let x = sigX + nSig * 9 + (nSig ? 8 : 0) + 6;
+    // the time signature's numbers stand one over the other, each filling two spaces
+    const timeX = sigX + nSig * 9 + (nSig ? 8 : 5), timeW = meter ? 18 * Math.max(meter.num.length, meter.den.length) : 0;
+    if (meter) x = timeX + timeW + 12;
     const cuts = [];
-    if (o.bars) { let beats = 0; items.forEach((it, i) => { beats += it.n.dur || 1; if (i < items.length - 1 && Math.abs(beats / o.bars - Math.round(beats / o.bars)) < 1e-6) cuts.push(i); }); }
+    if (perBar) { let beats = 0; items.forEach((it, i) => { beats += it.n.dur || 1; if (i < items.length - 1 && Math.abs(beats / perBar - Math.round(beats / perBar)) < 1e-6) cuts.push(i); }); }
     const natural = items.reduce((a, it) => a + it.w, 0) + cuts.length * 10;
     const W = o.grid ? px / U : Math.max(px / U, x + natural + 14), gain = stretch(W - x - 14, natural);
     const bars = [];
-    if (o.grid) { const span = (W - 8 - x) / Math.max(1, items.length); items.forEach((it, i) => { it.x = x + span * (i + 0.5); }); }
-    else items.forEach((it, i) => { it.x = x + it.lead; x += it.w * gain; if (cuts.includes(i)) { bars.push(x + 3); x += 10; } });
-    const complete = o.bars && items.length && Math.abs(items.reduce((a, it) => a + (it.n.dur || 1), 0) / o.bars % 1) < 1e-6;
+    // each note's room, from where it starts to where the next begins, is where a blank's box goes
+    if (o.grid) { const span = (W - 8 - x) / Math.max(1, items.length); items.forEach((it, i) => { it.x = x + span * (i + 0.5); it.from = it.x - span / 2; it.to = it.x + span / 2; }); }
+    else items.forEach((it, i) => { it.from = x; it.x = x + it.lead; x += it.w * gain; it.to = x; if (cuts.includes(i)) { bars.push(x + 3); x += 10; } });
+    const complete = perBar && items.length && Math.abs(items.reduce((a, it) => a + (it.n.dur || 1), 0) / perBar % 1) < 1e-6;
     if (complete) bars.push(W - 8);
 
     const parts = [];
@@ -204,13 +266,21 @@
     parts.push(at(x0 + CLEF_X[clef], sTop + CLEF_Y[clef], GLYPH[clef === 'treble8' ? 'treble' : clef], 'clef'));
     if (clef === 'treble8') parts.push(text(x0 + CLEF_X.treble8 + 1, sTop + CLEF_Y.treble8 + 40, '8', 11, 'clef8'));
     for (let k = 0; k < nSig; k++) parts.push(at(sigX + 4 + k * 9, sTop + yOf(SIG_STEPS[sig.sharps ? 'sharps' : 'flats'][k] - SIG_DROP[clef]), GLYPH[sig.sharps ? 'sharp' : 'flat'], 'sig'));
+    if (meter) for (const [s, y] of [[meter.num, 20], [meter.den, 40]]) parts.push(text(timeX + timeW / 2, sTop + y, s, 28, 'time', ' font-weight="bold"'));
 
     items.forEach((it, i) => {
-      const { heads, up, x, kind } = it, cls = (it.heads.length ? 'note' : 'rest') + (hl.has(i) ? ' hl' : '');
+      const { heads, up, x, kind } = it, cls = (it.n.blank ? 'blank' : it.heads.length ? 'note' : 'rest') + (it.n.slash ? ' slash' : '') + (hl.has(i) ? ' hl' : '');
       let s = '';
+      if (it.n.blank) {
+        s += `<rect x="${r1(it.from + 3)}" y="${r1(sTop + 3)}" width="${r1(it.to - it.from - 6)}" height="34" rx="3" fill="none" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+        if (it.n.under) s += under(it.from + 3, it.to - 3);
+        parts.push(`<g class="${cls}">${s}</g>`);
+        return;
+      }
       if (!heads.length) {
         s += at(x, sTop + 20, restGlyph(kind, it.fl));
         if (it.dots) s += dot(x + 9, sTop + 15);
+        if (it.n.under) s += under(x - 8, x + 8 + (it.dots ? 6 : 0));
         parts.push(`<g class="${cls}">${s}</g>`);
         return;
       }
@@ -225,22 +295,35 @@
       for (const st of ledger) s += ln(x - 10 + Math.min(0, ...dxs), sTop + yOf(st), x + 10 + Math.max(0, ...dxs), sTop + yOf(st), 1.3, 'ledger');
       for (const p of it.accs) s += at(x + p.ax, yh(p.h), GLYPH[p.g], 'acc');
       for (const h of heads) {
-        s += at(x + h.dx, yh(h), head(kind), 'head');
-        if (it.dots) s += dot(x + 9 + Math.max(0, h.dx), yh(h) - ((h.step - MID) % 2 ? 0 : 5)); // a dot on a line moves up into the space
+        s += at(x + h.dx, yh(h), it.n.slash ? GLYPH[kind === 'q' ? 'slash' : 'slashOpen'] : head(kind), 'head');
+        if (it.dots) s += dot(x + (it.n.slash ? 11 : 9) + Math.max(0, h.dx), yh(h) - ((h.step - MID) % 2 ? 0 : 5)); // a dot on a line moves up into the space
       }
       if (kind !== 'w') {
         const sx = x + (up ? 5.5 : -5.5), yTop = yh(heads[heads.length - 1]), yBot = yh(heads[0]);
-        // a stem reaches at least the middle line
-        const tip = up ? Math.min(yTop - 35, sTop + 20) : Math.max(yBot + 35, sTop + 20);
-        s += ln(sx, up ? yBot : yTop, sx, tip, 1.4) + flags(sx, tip, it.fl, up);
+        // a stem reaches at least the middle line, or its beam; a slash's starts where it meets the slash
+        const tip = it.tip != null ? sTop + it.tip : up ? Math.min(yTop - 35, sTop + 20) : Math.max(yBot + 35, sTop + 20);
+        s += ln(sx, (up ? yBot : yTop) + (it.n.slash ? (up ? -4 : 4) : 0), sx, tip, 1.4) + (it.tip != null ? '' : flags(sx, tip, it.fl, up));
       }
       const next = items[i + 1];
       if (it.tie && next && next.heads.length) for (const h of heads) {
         const to = next.heads.find((k) => k.step === h.step) || next.heads[0];
         s += tie(x + 6, next.x - 6, (yh(h) + yh(to)) / 2 + (up ? 6 : -6), up ? 1 : -1);
       }
+      if (it.n.under) s += under(x - 8 + Math.min(0, ...dxs), x + 8 + Math.max(0, ...dxs) + (it.dots ? 6 : 0));
       parts.push(`<g class="${cls}">${s}</g>`);
     });
+    for (const gr of groups) {
+      // the beam's outer edge is at the tip; a second beam joins neighbouring sixteenths, and a
+      // lone sixteenth gets a stub toward its group
+      const sx = (k) => items[k].x + (gr.up ? 5.5 : -5.5), y = sTop + gr.tip - (gr.up ? 0 : 5), y2 = y + (gr.up ? 8 : -8);
+      parts.push(beam(sx(gr.i), sx(gr.j), y));
+      for (let k = gr.i; k <= gr.j; k++) {
+        if (items[k].fl < 2) continue;
+        if (k < gr.j && items[k + 1].fl >= 2) parts.push(beam(sx(k), sx(k + 1), y2));
+        else if (!(k > gr.i && items[k - 1].fl >= 2)) parts.push(k > gr.i ? beam(sx(k) - 8, sx(k), y2) : beam(sx(k), sx(k) + 8, y2));
+      }
+      if (items[gr.i].t === 4) parts.push(text((sx(gr.i) + sx(gr.j)) / 2, gr.up ? y - 4 : y + 17, '3', 11, 'tuplet'));
+    }
     for (const c of o.chords || []) if (items[c.at]) parts.push(text(items[c.at].x, 14, c.text, 14, 'chord'));
     (o.lyrics || []).forEach((w, i) => { if (items[i] && w) parts.push(text(items[i].x, H - 5, w, 14, 'lyric')); });
     return wrap(W, H, px, parts.join(''));
@@ -279,17 +362,24 @@
     const beamed = new Set(beams.flatMap(([i, j]) => Array.from({ length: j - i + 1 }, (_, k) => i + k)));
 
     const x0 = 8, L = 52, H = 78;
-    let x = x0 + 26; // past the time signature
+    let x = x0 + (o.bare ? 0 : 26); // past the time signature
     const nBars = Math.max(1, Math.ceil(pos / barTicks));
     const natural = ev.reduce((a, e) => a + e.w, 0) + (nBars - 1) * 10;
-    const W = Math.max(px / U, x + natural + 14), gain = stretch(W - x - 14, natural);
+    const W = Math.max(px / U, x + natural + 14);
+    // bare is a figure on its own (on a button): no time signature, no bar lines, and drawn at its
+    // own spacing with its first and last heads centred in the width
+    const gain = o.bare ? 1 : stretch(W - x - 14, natural);
+    if (o.bare && ev.length) x = Math.max(x0, (W - (natural - ev[ev.length - 1].w)) / 2 - 7);
     const bars = [];
     ev.forEach((e, i) => { if (i && e.bar !== ev[i - 1].bar) { bars.push(x + 3); x += 10; } e.x = x + 7; x += e.w * gain; });
     bars.push(W - 8);
 
     const [num, den] = String(r.meter || '4/4').split('/');
-    const parts = [ln(x0, L, W - 8, L, 1), text(x0 + 11, L - 2, num, 16, 'time', ' font-weight="bold"'), text(x0 + 11, L + 14, den, 16, 'time', ' font-weight="bold"')];
-    for (const bx of bars) parts.push(ln(bx, L - 14, bx, L + 14, 1.3, 'bar'));
+    const parts = [ln(x0, L, W - 8, L, 1)];
+    if (!o.bare) {
+      parts.push(text(x0 + 11, L - 2, num, 16, 'time', ' font-weight="bold"'), text(x0 + 11, L + 14, den, 16, 'time', ' font-weight="bold"'));
+      for (const bx of bars) parts.push(ln(bx, L - 14, bx, L + 14, 1.3, 'bar'));
+    }
     ev.forEach((e, i) => {
       if (e.rest) { parts.push(`<g class="rest">${at(e.x, L + (e.kind === 'w' ? 10 : 0), restGlyph(e.kind, e.fl))}${e.dots ? dot(e.x + 9, L - 5) : ''}</g>`); return; }
       const sx = e.x + 5.5, tip = beamed.has(i) ? L - 38 : L - 35;

@@ -2,6 +2,7 @@
 import { $, A, TL, flash, micCopy, setDeviceInfo } from './base.js';
 import { R, app } from './state.js';
 import { answerChoice, seqPick } from './answer.js';
+import { dictName } from './dictation.js';
 import { render } from './router.js';
 
   // ---------- a MIDI keyboard ----------
@@ -45,13 +46,14 @@ import { render } from './router.js';
   function midiNote(note) {
     const q = R && R.q;
     if (!q || R.phase !== 'answering' || q.tonic == null || q.layout !== 'ladder') return;
+    if (q.kind === 'dictation' && R.mainEnd == null) return; // listen first
     const semi = note - q.tonic;
     const id = TL.degBySemi(semi).id;
     if (!q.options.some((o) => o.id === id)) return;
     A.wake();
     flash($(`.piano .pkey[data-semi="${semi}"]`) || $(`.piano .pkey[data-semi="${TL.mod12(semi)}"]`), 160);
     flash($(`.staff-in .spos[data-semi="${semi}"]`) || $(`.staff-in .spos[data-semi="${TL.mod12(semi)}"]`) || $(`.staff-in .spos[data-twin-semi="${TL.mod12(semi)}"]`), 160);
-    if (q.kind === 'sequence') seqPick(id); else if (q.kind === 'choice') answerChoice(id);
+    if (q.kind === 'sequence') seqPick(id); else if (q.kind === 'choice') answerChoice(id); else if (q.kind === 'dictation') dictName(id);
   }
 
   // this screen's part of the action table (data-act), merged in main.js

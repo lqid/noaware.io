@@ -1337,13 +1337,203 @@
   };
 
   // ======================================================================
-  const TRACKS = [degrees, intervals, chords, harmony, melody, rhythm, sing, sight];
+  // 9. FULL DICTATION: a heard melody written as its rhythm, then its notes
+  // ======================================================================
+  // The rhythm is built from the level's beat figures, then the notes are named on it, and each
+  // note is graded for its name and its length (TL.genPhrase, TL.Dict, TL.gradeDictation). It plays
+  // on the organ, the one voice whose note lengths can be heard, over a counted-in bar of clicks.
+  const DI_P5 = [0, 2, 4, 5, 7];
+  const DI_WIDE = { pool: SIGHT_WIDE, starts: [0, 4, 7, -5], ends: [0, 12], maxLeap: 7, leapProb: 0.3 };
+  // level 2's note promises skips between Do, Mi and Sol: every skip leaves and lands on one of them
+  const DI_SKIPS = { pool: DI_P5, starts: [0, 4, 7], ends: [0], maxLeap: 7, leapProb: 0.35, skipTones: [0, 4, 7] };
+  const DI_CELLS8 = ['q', 'h', 'qr', 'dh', 'ee', 'dqe'];
+  const DI_LEVELS = [
+    { name: 'Quarters and halves', meter: '4/4', bars: 2, cells: ['q', 'h'], introduce: ['q', 'h'], pool: DI_P5, starts: [0, 4], ends: [0], maxLeap: 2, leapProb: 0, bpm: 80, clicks: 'under', notes: [4, 7] },
+    { name: 'Skips in the home chord', meter: '4/4', bars: 2, cells: ['q', 'h'], introduce: [], ...DI_SKIPS, bpm: 80, clicks: 'under', notes: [4, 7], needs: [{ track: 'melody', level: 3 }],
+      note: 'The melody can now skip between Do, Mi and Sol, the notes of the home chord. Hear where a skip lands against Do.' },
+    { name: 'Rests and long notes', meter: '4/4', bars: 2, cells: ['q', 'h', 'qr', 'dh'], introduce: ['qr', 'dh'], ...DI_SKIPS, bpm: 80, clicks: 'under', notes: [4, 7], needs: [{ track: 'rhythm', level: 2 }],
+      note: 'A note can now last three beats, and a beat can be silent. A rest takes up its beat: keep counting through it. A rest never falls on the first beat of a bar or in the last bar.' },
+    { name: 'Eighth notes', meter: '4/4', bars: 2, cells: ['q', 'h', 'qr', 'dh', 'ee'], introduce: ['ee'], ...DI_SKIPS, bpm: 76, clicks: 'under', notes: [5, 9], needs: [{ track: 'rhythm', level: 3 }],
+      note: 'Two eighth notes share one beat. Count 1 & 2 &, and listen for which beats split in two.' },
+    { name: 'Low Sol to High Do', meter: '4/4', bars: 2, cells: ['q', 'h', 'qr', 'dh', 'ee'], introduce: [], ...DI_WIDE, bpm: 76, clicks: 'under', notes: [5, 9], needs: [{ track: 'melody', level: 5 }],
+      note: 'Melodies now reach down to low Sol and up to High Do. A note keeps its name at any height.' },
+    { name: 'Four bars', meter: '4/4', bars: 4, cells: ['q', 'h', 'qr', 'dh', 'ee'], introduce: [], ...DI_WIDE, bpm: 76, clicks: 'under', notes: [9, 14],
+      note: 'Four bars now. Remember bars one and two as one gesture, then three and four. Write what you are sure of first: the last note is always Do, held long.' },
+    { name: 'Without the click', meter: '4/4', bars: 4, cells: ['q', 'h', 'qr', 'dh', 'ee'], introduce: [], ...DI_WIDE, bpm: 76, clicks: 'countin', notes: [9, 14],
+      note: 'The clicks now count you in, then stop. Keep the beat going in your head, or tap it.' },
+    { name: 'Dotted quarter', meter: '4/4', bars: 4, cells: DI_CELLS8, introduce: ['dqe'], ...DI_WIDE, bpm: 72, clicks: 'countin', notes: [9, 14], needs: [{ track: 'rhythm', level: 4 }],
+      note: 'A dotted quarter lasts a beat and a half; the eighth after it finishes the second beat. Long, short.' },
+    { name: 'Three-four', meter: '3/4', bars: 4, cells: DI_CELLS8, introduce: [], ...DI_WIDE, bpm: 84, clicks: 'fade', notes: [7, 12],
+      note: 'Three beats to a bar. The first is the heavy one. The melody ends on a dotted half that fills the last bar. The clicks play under the melody for your first rounds, then stop.' },
+    { name: 'Fi and Te', meter: ['4/4', '3/4'], bars: 4, cells: DI_CELLS8, introduce: ['#4', 'b7'], pool: [-5, -3, -1, 0, 2, 4, 5, 6, 7, 9, 10, 11, 12], chromatic: { 6: 7, 10: 9 }, approach: 2, want: [6, 10], starts: [0, 4, 7], ends: [0, 12], maxLeap: 7, leapProb: 0.3, bpm: 72, clicks: 'countin', notes: [7, 14], needs: [{ track: 'melody', level: 8 }],
+      note: 'A note can now be raised or lowered a half step. Fi leans up into Sol; Te leans down onto La. Each moves on by step. The meter is 4/4 or 3/4, and it is shown.' },
+    // Melody's minor pool, with its raised Ti
+    { name: 'Minor keys', meter: ['4/4', '3/4'], bars: 4, cells: DI_CELLS8, introduce: [], mode: 'minor', pool: [-5, -4, -2, -1, 0, 2, 3, 5, 7, 8, 10, 12], chromatic: { '-1': 0 }, starts: [0, 3, 7], ends: [0, 12], maxLeap: 7, leapProb: 0.3, bpm: 72, clicks: 'countin', notes: [7, 14], needs: [{ track: 'melody', level: 9 }],
+      note: 'The four chords now set a minor key. Me, Le and Te are its usual notes. Ti is often raised to lean into Do.' },
+    { name: 'Six-eight', meter: '6/8', bars: 4, cells: ['eee', 'qe', 'eq', 'dq', 'dqr', 'dh'], introduce: ['eee', 'qe', 'eq', 'dq', 'dqr'], ...DI_WIDE, bpm68: 52, clicks: 'fade', notes: [7, 13], needs: [{ track: 'rhythm', level: 9 }],
+      note: 'Two big beats to a bar, each split in three. The count-in clicks six eighths: feel two. The melody ends on a dotted half that fills the last bar. The clicks play under it for your first rounds, then stop.' },
+    { name: 'Find the first note', meter: ['4/4', '3/4', '6/8'], bars: 4, cells: [...DI_CELLS8, 'eee', 'qe', 'eq', 'dq', 'dqr'], introduce: [], ...DI_WIDE, given: false, bpm: 76, bpm68: 54, clicks: 'countin', notes: [7, 14],
+      note: 'The first note is no longer given. Find it from the chords: hum Do, then step to where the melody starts. The meter can be 4/4, 3/4 or 6/8, and it is shown.' },
+  ];
+  DI_LEVELS.forEach((lv) => {
+    lv.items = [...sortBySemi([...new Set(lv.pool.map((s) => TL.degBySemi(s).id))]), ...lv.cells];
+    lv.hearings = lv.hearings ?? 4;
+  });
+  const DI_FIG_TEXT = {
+    qr: 'One beat of silence. The note before it stops short. Write the rest where nothing sounds.',
+    dh: 'Three beats. The dot adds half again: 2 + 1.',
+    ee: 'Two notes in one beat, beamed together. Here they always move by step.',
+    dqe: 'A beat and a half, then half a beat: long, short.',
+    eee: 'Three eighths fill one beat.',
+    qe: 'Long, short, in one beat.',
+    eq: 'Short, long, in one beat.',
+    dq: 'One note, one whole beat.',
+    dqr: 'One beat of silence.',
+  };
+  // a bar that shows a figure on its card, where the figure repeated would not
+  const DI_FIG_DEMO = { qr: ['q', 'qr', 'q', 'qr'], dh: ['dh', 'q'], dqr: ['dq', 'dqr'] };
+  const DI_BARS = { 2: 'two', 4: 'four' };
+  const DI_TASK = 'Then a bar of clicks, then a short melody. Write its rhythm, then name its notes.';
+  // A question: the phrase in the key, the clicks the level keeps, and the staff it is written on.
+  function dictationQuestion(L, { tonic, withContext = true, fade = false, labels }) {
+    const lv = DI_LEVELS[L];
+    const mode = lv.mode || 'major';
+    const meter = Array.isArray(lv.meter) ? pick(lv.meter) : lv.meter;
+    const ph = TL.genPhrase(lv, meter);
+    const { bars, barTicks, beat } = ph;
+    const six = meter === '6/8';
+    const bpm = six ? lv.bpm68 : lv.bpm;
+    const tickSec = 60 / bpm / (six ? 18 : 12);
+    const notes = ph.notes.map((x) => ({ id: TL.degBySemi(x.semi).id, ...x }));
+    // the octave that puts the middle of the melody's range nearer B4, the middle of the treble
+    // staff: that keeps its furthest note nearest the staff (a median would follow where most notes
+    // sit, and can put the rest three ledger lines off)
+    const semis = notes.map((x) => x.semi);
+    const mid = (Math.min(...semis) + Math.max(...semis)) / 2;
+    const oct = Math.abs(tonic + mid - 71) <= Math.abs(tonic + 12 + mid - 71) ? 0 : 12;
+    const base = tonic + oct;
+    const clicks = lv.clicks === 'fade' ? (fade ? 'countin' : 'under') : lv.clicks;
+    // clicks on every quarter (every eighth in 6/8), the accent on 1 (and on 4 in 6/8)
+    const step = six ? 6 : 12, per = barTicks / step, barSec = barTicks * tickSec;
+    const clickBar = (t0, vel) => Array.from({ length: per }, (_, i) => ({ t: t0 + i * step * tickSec, perc: i % (six ? 3 : per) === 0 ? 'accent' : 'click', dur: 0.05, vel }));
+    const clickEvents = (t0) => [...clickBar(t0, 1), ...(clicks === 'under' ? Array.from({ length: bars }, (_, b) => clickBar(t0 + (b + 1) * barSec, 0.45)).flat() : [])];
+    // a note stops a little before its length is up, so the next one is heard to start
+    const noteDur = (len) => len * tickSec - Math.min(0.05, 0.12 * len * tickSec);
+    // no slot: a slot lit while answering would give the number of notes away
+    const melodyAt = (t0) => [...clickEvents(t0), ...notes.map((x, i) => noteEv(t0 + barSec + x.tick * tickSec, base + x.semi, noteDur(x.len), { timbre: 'organ', deg: x.id, staffIdx: i }))];
+    let k = 0;
+    const staffNotes = ph.figs.flatMap((f) => {
+      let p = f.start;
+      return TL.RCELLS[f.id].ticks.map((t) => {
+        const tick = p;
+        p += Math.abs(t);
+        if (t < 0) return { midi: null, dur: -t / 12, rest: true, letter: null, tick };
+        const x = notes[k++];
+        return { midi: base + x.semi, dur: t / 12, rest: false, letter: TL.Dict.letter({ tonic, mode }, x.id), tick };
+      });
+    });
+    const given = lv.given === false ? null : notes[0].id;
+    const palette = lv.cells.filter((c) => TL.cellLen(c) % beat === 0);
+    const graded = given ? notes.slice(1) : notes;
+    const t1 = contextLen(withContext);
+    const melodyPart = melodyAt(0);
+    const q = {
+      kind: 'dictation', layout: 'ladder', mode, tonic, withContext, meter, bars, barTicks, beat, bpm, tickSec, oct, clicks,
+      notes, figs: ph.figs, palette, given, range: [Math.min(...lv.pool), Math.max(...lv.pool)],
+      options: lv.items.filter((id) => DEG[id]).map(degOption),
+      hearings: lv.hearings, fallback: ph.fallback,
+      prompt: `A ${DI_BARS[bars] || bars}-bar melody in ${meter}. ${given ? `It starts on ${nameOf(given, labels)}. Write its rhythm, then name its notes.` : 'Write its rhythm, then name all its notes.'}`,
+      stats: [...graded.map((x) => x.id), ...ph.figs.map((f) => f.id)],
+      staff: { key: { tonic, mode }, clef: 'treble', time: meter, bars: barTicks / 12, beam: true, notes: staffNotes },
+      audio: {
+        main: [...contextEvents(tonic, mode, withContext), ...melodyAt(t1)],
+        parts: { melody: melodyPart, context: TL.cadenceEvents(tonic, mode), do: [noteEv(0, base, 2.0, { timbre: 'organ', deg: '1' })] },
+        reveal: melodyPart,
+      },
+      replays: [{ part: 'main', label: 'Replay all', key: 'Space' }, { part: 'melody', label: 'Just the melody' }, { part: 'context', label: 'Just the chords' }, { part: 'do', label: 'Play Do' }],
+      // the written entry after the same count-in: named notes on the organ, unnamed ones as knocks;
+      // g (a grade of it) puts its right names at the melody's own octave
+      compare: (entry, g) => {
+        const at = TL.Dict.pitches(q, entry, g);
+        return [...clickEvents(0), ...TL.Dict.onsets(q, entry).map((x, j) => (at[j] == null
+          ? { t: barSec + x.tick * tickSec, perc: 'wood', dur: x.len * tickSec, vel: 1 }
+          : noteEv(barSec + x.tick * tickSec, base + at[j], noteDur(x.len), { timbre: 'organ', deg: x.name })))];
+      },
+      // around: semitones from Do, the note before it
+      tapSound: (id, around) => [noteEv(0, base + TL.Dict.near(q, id, around), 0.6, { timbre: 'organ', deg: id })],
+      figSound: (id) => {
+        let p = 0;
+        return TL.RCELLS[id].ticks.flatMap((t) => { const at = p; p += Math.abs(t); return t > 0 ? [{ t: at * tickSec, perc: 'wood', dur: t * tickSec, vel: 1 }] : []; });
+      },
+    };
+    return q;
+  }
+  const dictation = {
+    id: 'dictation',
+    name: 'Full Dictation',
+    short: 'Dictation',
+    hue: 170,
+    blurb: 'Hear a short melody and write it down, its rhythm and its notes, until it stands on a staff.',
+    why: 'A melody is a rhythm as much as a row of notes. Writing both is how a tune heard in your head reaches the page as it sounded.',
+    task: 'You hear four chords, a bar of clicks, then a short melody. Write its rhythm, then name its notes.',
+    taskFor: (s) => (s.context === 'drone' ? 'You hear a drone built on Do, a bar of clicks, then a short melody. Write its rhythm, then name its notes.' : s.cadenceEvery ? null : 'Four chords set the key when it changes. ' + DI_TASK),
+    introFooter: 'Play the example a few times. Sing it back and tap the beat before you start.',
+    levels: DI_LEVELS,
+    usesKey: true,
+    modeOf: (L) => DI_LEVELS[L].mode || 'major',
+    window: 30, // a question grades many notes, so mastery reads more of them
+    weekMin: 8, // and a week's point needs fewer questions
+    itemLabel: (id) => (DEG[id] ? `${DEG[id].sol} (${DEG[id].num})` : TL.RCELLS[id].label),
+    intro(L, { tonic, context = 'cadence', cadenceEvery = true, labels }) {
+      const lv = DI_LEVELS[L];
+      const q = dictationQuestion(L, { tonic, withContext: true, labels });
+      const sample = { label: 'Hear a sample', events: q.audio.main };
+      const meter = Array.isArray(lv.meter) ? lv.meter[0] : lv.meter;
+      const [barTicks, beat] = TL.METERS[meter];
+      // each new figure on a bar of its own, heard as knocks over the clicks, as in Rhythm
+      const cards = lv.introduce.filter((c) => DI_FIG_TEXT[c]).map((c) => {
+        let cells = DI_FIG_DEMO[c];
+        if (!cells) {
+          cells = [];
+          while (cells.reduce((a, x) => a + TL.cellLen(x), 0) + TL.cellLen(c) <= barTicks) cells.push(c);
+        }
+        const n = TL.cellLen(c) / beat;
+        const r = { cells, ticks: cells.flatMap((x) => TL.RCELLS[x].ticks), meter, bars: 1, barTicks, beat };
+        return { id: c, title: TL.RCELLS[c].label, sub: `${n} beat${n === 1 ? '' : 's'}`, text: DI_FIG_TEXT[c], rhythm: r, bpm: meter === '6/8' ? lv.bpm68 : lv.bpm, demos: [] };
+      });
+      if (L === 0) {
+        const lead = context === 'drone' ? 'First you hear a drone built on Do.' : cadenceEvery ? 'First you hear four chords that set the key.' : 'When the key changes, four chords set it first.';
+        let k = 0;
+        return {
+          title: lv.name,
+          note: lead + ' Then the clicks count one bar, and a two-bar melody plays over them. Write how long each note lasts, then which note it is. It plays on an organ, so you can hear where each note stops. Every melody ends on Do, held for two beats.',
+          cards: [
+            {
+              id: 'listen', title: 'Listen first', sub: '',
+              text: 'The first time, only listen: the buttons wake when it ends. Sing it back under your breath and tap the beat. Then write the rhythm bar by bar: a quarter note for one beat, a half note for two. Each bar shows the beats it still needs.',
+              staff: { ...q.staff, ids: q.staff.notes.map((n) => (n.rest ? null : q.notes[k++].id)) },
+              demos: [sample],
+            },
+            { id: 'notes', title: 'Then the notes', sub: '', text: 'When every bar is full, name the notes in order from Do, as in Melodic Dictation. The first is given. Check grades each note twice: its name and its length.', demos: [] },
+            { id: 'hearings', title: 'Four hearings', sub: '', text: 'Each time the melody plays is a hearing, the first one too. You have four. The chords and Play Do are free. A fifth makes the round practice: it counts toward today, not toward the next level.', demos: [] },
+          ],
+          demos: [],
+        };
+      }
+      return { title: lv.name, note: lv.note, cards, demos: [sample] };
+    },
+    generate: dictationQuestion,
+  };
+
+  // ======================================================================
+  const TRACKS = [degrees, intervals, chords, harmony, melody, rhythm, dictation, sing, sight];
   const TRACK = Object.fromEntries(TRACKS.map((t) => [t.id, t]));
   // Prerequisites keep a beginner from facing dictation and harmony before the ear has a frame.
   const PREREQ = {
     melody: [{ track: 'degrees', level: 2 }],
     harmony: [{ track: 'degrees', level: 3 }, { track: 'chords', level: 1 }],
     sight: [{ track: 'sing', level: 4 }], // Sing a pattern mastered: reading a pattern on its names comes first
+    dictation: [{ track: 'melody', level: 2 }, { track: 'rhythm', level: 1 }], // naming a melody and writing quarters and halves come first
   };
   // Every level whose introduction text or demos were rewritten in version 2.
   [DEG_LEVELS, IV_LEVELS, CH_LEVELS, HA_LEVELS, RH_LEVELS, SI_LEVELS].forEach((levels) => levels.forEach((lv) => (lv.introV = lv.introV || 2)));

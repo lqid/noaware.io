@@ -10,7 +10,8 @@ import { learnedDegrees } from './today.js';
   // A row of note names; with semis, the names sit higher or lower to show the melody's shape.
   // ---------- sight-singing: the melody on its staff ----------
   function sightStaffSVG(st, lyrics, highlight = [], width = 520) {
-    return TL.Notation.staff({ key: st.key, clef: st.clef, notes: st.notes, lyrics, highlight, width });
+    // a staff with a time signature (Full Dictation's) keeps it, its bars and its beams
+    return TL.Notation.staff({ key: st.key, clef: st.clef, notes: st.notes, lyrics, highlight, width, time: st.time, bars: st.bars, beam: st.beam });
   }
   const CLEF_NAME = { bass: 'bass clef', treble: 'treble clef', treble8: 'treble clef with an 8' };
   // While answering, the names the level allows; after, all of them, the key, and in red the notes
@@ -156,8 +157,8 @@ import { learnedDegrees } from './today.js';
     let h2, body, actions;
     if (g === 'ask') {
       h2 = 'Let the app hear you?';
-      body = `<p class="lede" style="margin-top:0">${R.micFor === 'melody' ? 'In dictation the app can listen while you sing each melody back before you name its notes. The echo is checked, not scored.' : R.micFor === 'rhythm' ? 'In rhythm questions the app can hear your claps through the microphone, so you can clap a rhythm instead of tapping it. Keep quiet during the get-ready clicks: that is when it measures the room.' : 'In singing questions the app can listen through your microphone and suggest the grade. It is stricter than your own ear, so Missed is normal at first.'}</p>
-        <p class="muted">The sound is analysed on this device as you ${R.micFor === 'rhythm' ? 'clap' : 'sing'} and is never sent anywhere. Only the current answer is kept, in memory until the next question, so you can save it to your computer if a grade looks wrong. Your browser shows a microphone light during ${R.micFor === 'rhythm' ? 'rhythm' : R.micFor === 'melody' ? 'dictation' : 'singing'} sets, and it goes off when the set ends. You can change this in Settings.</p>`;
+      body = `<p class="lede" style="margin-top:0">${R.micFor === 'melody' ? 'In Melodic Dictation the app can listen while you sing each melody back before you name its notes. The echo is checked, not scored.' : R.micFor === 'rhythm' ? 'In rhythm questions the app can hear your claps through the microphone, so you can clap a rhythm instead of tapping it. Keep quiet during the get-ready clicks: that is when it measures the room.' : 'In singing questions the app can listen through your microphone and suggest the grade. It is stricter than your own ear, so Missed is normal at first.'}</p>
+        <p class="muted">The sound is analysed on this device as you ${R.micFor === 'rhythm' ? 'clap' : 'sing'} and is never sent anywhere. Only the current answer is kept, in memory until the next question, so you can save it to your computer if a grade looks wrong. Your browser shows a microphone light during ${R.micFor === 'rhythm' ? 'rhythm' : R.micFor === 'melody' ? 'Melodic Dictation' : 'singing'} sets, and it goes off when the set ends. You can change this in Settings.</p>`;
       actions = `<button class="btn primary lg" data-act="micYes">Use the microphone <kbd>Enter</kbd></button><button class="btn ghost" data-act="micNo">${R.micFor === 'melody' ? 'Not now' : R.micFor === 'rhythm' ? 'Tap instead' : 'I’ll check myself'}</button>`;
     } else if (g === 'start') {
       h2 = R.micFor === 'melody' ? 'Sing it back first' : R.micFor === 'rhythm' ? 'Clap the rhythm' : 'Ready to sing';
@@ -180,7 +181,7 @@ import { learnedDegrees } from './today.js';
       body = `<p class="lede" style="margin-top:0">${esc((MIC_ERR[R.micErr] || MIC_ERR.other)())}</p>`;
       actions = '<button class="btn primary lg" data-act="micContinue">Continue <kbd>Enter</kbd></button>';
     }
-    return `<div class="between mic-gate"><p class="eyebrow">${R.micFor === 'melody' ? 'Dictation set' : R.micFor === 'rhythm' ? 'Rhythm set' : 'Singing set'}</p><h2>${h2}</h2>${body}<div class="row">${actions}</div></div>`;
+    return `<div class="between mic-gate"><p class="eyebrow">${R.micFor === 'melody' ? 'Melodic Dictation set' : R.micFor === 'rhythm' ? 'Rhythm set' : 'Singing set'}</p><h2>${h2}</h2>${body}<div class="row">${actions}</div></div>`;
   }
   // the line under the meter, from what the listener reports
   function micLine(q, st) {

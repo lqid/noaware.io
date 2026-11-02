@@ -2,7 +2,9 @@
 // The notation renderer: every degree in every key and mode is spelled on a run of letters with no
 // double accidental and nothing against the signature; the signatures match the circle of fifths;
 // a staff and a rhythm render well-formed SVG for every clef, signature, value, rest, tie, chord
-// and ledger line, and for every rhythm the curriculum can make.
+// and ledger line, and for every rhythm the curriculum can make; time signatures, beams, slashes,
+// blanks, wrong lengths and bare rhythms draw as they should; and anything drawn without those
+// options is exactly what the code on git main draws.
 //   node tone-ladder/tests/notation-check.js [path/to/static/tone-ladder]
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const dir = process.argv[2] || path.join(__dirname, '..', '..', 'static', 'tone-ladder');
@@ -11,6 +13,28 @@ for (const f of ['theory.js', 'curriculum.js', 'notation.js']) vm.runInThisConte
 const TL = globalThis.TL, N = TL.Notation;
 let bad = 0;
 const fail = (m) => { bad++; if (bad <= 30) console.log('FAIL', m); };
+
+// main's notation.js, loaded in a context of its own on this copy's theory, to compare drawings
+// with. A checkout without git or a main branch (a shallow CI clone) skips the comparison.
+let mainN = null, compared = 0;
+for (const ref of ['main', 'origin/main']) {
+  try {
+    const src = require('child_process').execFileSync('git', ['show', `${ref}:./js/notation.js`], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const ctx = { TL: { ...TL, Notation: undefined } };
+    ctx.window = ctx;
+    vm.runInContext(src, vm.createContext(ctx), { filename: `${ref}:notation.js` });
+    mainN = ctx.TL.Notation;
+    break;
+  } catch (e) { /* the next ref, or none */ }
+}
+const usesNew = (o) => o.time || o.beam || (o.notes || []).some((n) => n.slash || n.blank || n.under);
+function sameAsMain(where, svg, draw) {
+  if (!mainN || typeof svg !== 'string') return;
+  compared++;
+  let was;
+  try { was = draw(mainN); } catch (e) { return fail(`${where}: main throws, this draws`); }
+  if (svg !== was) fail(`${where}: drawn differently from the code on main`);
+}
 const MODES = Object.keys(TL.MODE_SCALE);
 const LETTERS = 'CDEFGAB', NATURAL = [0, 2, 4, 5, 7, 9, 11];
 const accName = (a) => ({ '-2': '𝄫', '-1': '♭', 0: '', 1: '♯', 2: '𝄪' }[a]);
@@ -78,7 +102,15 @@ function wellFormed(svg, where) {
 const q = (midi, dur = 1, more = {}) => ({ midi, dur, ...more });
 const C = { tonic: 0, mode: 'major' };
 let staves = 0;
-const render = (where, o) => { staves++; let svg; try { svg = N.staff(o); } catch (e) { return fail(where + ' threw ' + e.stack); } wellFormed(svg, where); if (/undefined|NaN/.test(svg)) fail(where + ': the drawing has an undefined part'); return svg; };
+const render = (where, o) => {
+  staves++;
+  let svg;
+  try { svg = N.staff(o); } catch (e) { return fail(where + ' threw ' + e.stack); }
+  wellFormed(svg, where);
+  if (/undefined|NaN/.test(svg)) fail(where + ': the drawing has an undefined part');
+  if (!usesNew(o)) sameAsMain(where, svg, (M) => M.staff(o));
+  return svg;
+};
 
 // every clef, every signature, 1 to 16 notes of every value, with rests, ties and chords mixed in
 const VALUES = [4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25];
@@ -106,6 +138,8 @@ for (const [clef, midi, n] of [['treble', 60, 1], ['treble', 57, 2], ['treble', 
   if (count(chrom, 'acc') !== 9) fail('C major chromatic: ' + count(chrom, 'acc') + ' accidentals, expected 9');
   // an accidental holds for its letter until a note cancels it: F F♯ G F needs ♯ then ♮; in C minor B B♭ C needs ♮ then ♭
   if (count(render('cancel', { key: C, notes: [65, 66, 67, 65].map((m) => q(m)) }), 'acc') !== 2) fail('F F♯ G F: expected ♯ then ♮');
+  // and only in its own octave: F♯ then an F an octave up needs no natural
+  if (count(render('octave', { key: C, notes: [66, 77].map((m) => q(m)) }), 'acc') !== 1) fail('F♯4 F5: expected only the ♯');
   if (count(render('cancel minor', { key: { tonic: 0, mode: 'minor' }, notes: [59, 58, 60].map((m) => q(m)) }), 'acc') !== 2) fail('B B♭ C in C minor: expected ♮ then ♭');
   // a chord spelled from its root by letter: A♭ diminished wants A♭ C♭ E𝄫, so the double flat is drawn
   const dim = render('A flat diminished', { key: { tonic: 8, mode: 'major' }, sig: false, notes: [{ midis: [56, 59, 62], dur: 1, letters: [5, 0, 2] }] });
@@ -142,6 +176,7 @@ const renderR = (where, r) => {
   let svg;
   try { svg = N.rhythm({ rhythm: r, width: 600 }); } catch (e) { return fail(where + ' threw ' + e.stack); }
   wellFormed(svg, where);
+  sameAsMain(where, svg, (M) => M.rhythm({ rhythm: r, width: 600 }));
   const sounds = r.ticks.filter((t) => t > 0).length, rests = r.ticks.filter((t) => t < 0).length;
   if (count(svg, 'head') < sounds) fail(`${where}: ${count(svg, 'head')} heads for ${sounds} sounds`);
   if (count(svg, 'rest') !== rests) fail(`${where}: ${count(svg, 'rest')} rests for ${rests}`);
@@ -236,6 +271,178 @@ for (const mode of ['major', 'minor']) for (let t = 0; t < 12; t++) {
 }
 for (const [clef, midi, n] of [['treble8', 48, 1], ['treble8', 45, 2], ['treble8', 50, 0], ['treble8', 72, 2]]) if (ledgers(clef, midi) !== n) fail(`${clef} ${midi}: ${ledgers(clef, midi)} ledger lines, expected ${n}`);
 for (const midi of [40, 48, 55, 60, 67, 76]) if (count(render('auto ' + midi, { key: C, notes: [q(midi), q(midi + 2)] }), 'clef8')) fail('auto chose treble8');
+
+// ---------- time signatures, beams, slashes, blanks, wrong lengths ----------
+// each element directly inside the drawing's wrapping <g>, in order
+function partsOf(svg) {
+  const out = [];
+  let depth = 0, start = 0;
+  for (const m of svg.matchAll(/<(\/?)([a-zA-Z][\w-]*)[^>]*?(\/?)>/g)) {
+    if (m[1]) { if (--depth === 2) out.push(svg.slice(start, m.index + m[0].length)); }
+    else if (m[3]) { if (depth === 2) out.push(m[0]); }
+    else { if (depth === 2) start = m.index; depth++; }
+  }
+  return out;
+}
+// what a staff shows: its lines, each note's heads, stem and flags, the beams, the time signature, the rules
+function look(svg) {
+  const ps = partsOf(svg), H = +/viewBox="0 0 [\d.]+ ([\d.]+)"/.exec(svg)[1];
+  const lines = ps.filter((p) => /^<line x1="[-\d.]+" y1="([-\d.]+)" x2="[-\d.]+" y2="\1" stroke-width="1"\/>$/.test(p)).map((p) => +/y1="([-\d.]+)"/.exec(p)[1]);
+  const notes = ps.filter((p) => p.startsWith('<g class="note')).map((p) => {
+    const st = /<line x1="([-\d.]+)" y1="([-\d.]+)" x2="\1" y2="([-\d.]+)" stroke-width="1.4"\/>/.exec(p), heads = tr(p, 'head');
+    return { x: heads[0][0], ys: heads.map((h) => h[1]), stem: st && { x: +st[1], from: +st[2], to: +st[3] }, flags: (p.match(/M 0 0 C 1 8 12 10 9 23/g) || []).length, slash: p.startsWith('<g class="note slash'), part: p };
+  });
+  const beams = ps.filter((p) => p.startsWith('<rect class="beam"')).map((p) => { const [, x, y, w] = /x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)"/.exec(p).map(Number); return { from: x + 0.7, to: x + w - 0.7, y }; });
+  const time = [...svg.matchAll(/<text class="time" x="([-\d.]+)" y="([-\d.]+)"[^>]*>([^<]*)</g)].map((m) => ({ x: +m[1], y: +m[2], s: m[3] }));
+  const rules = [...svg.matchAll(/<line class="under" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)"/g)].map((m) => ({ from: +m[1], y: +m[2], to: +m[3] }));
+  const bars = [...svg.matchAll(/<line class="bar" x1="([-\d.]+)"/g)].map((m) => +m[1]);
+  return { ps, H, lines, notes, beams, time, rules, bars };
+}
+// the beams at the stems' tips, as the sizes of their groups, and the flags left over; every
+// beamed note's stem ends at its beam, all one way, with no flag
+function beamGroups(where, o) {
+  const svg = render(where, o);
+  if (!svg) return { sizes: '?', flags: -1, notes: [], beams: [] };
+  const L = look(svg), sizes = [];
+  for (const b of L.beams) {
+    if (b.y < 0 || b.y + 5 > L.H) fail(`${where}: a beam is cut off by the drawing's edge`);
+    const js = L.notes.filter((n) => n.stem && n.stem.x >= b.from - 0.3 && n.stem.x <= b.to + 0.3);
+    // a second beam (or a stub) stops short of the tips
+    if (js.length < 2 || !js.every((n) => Math.abs(n.stem.to - (n.stem.to < n.stem.from ? b.y : b.y + 5)) < 0.15)) continue;
+    sizes.push(js.length);
+    if (new Set(js.map((n) => n.stem.x > n.x)).size !== 1) fail(`${where}: a beamed group with stems both ways`);
+    if (js.some((n) => n.flags)) fail(`${where}: a beamed note keeps its flag`);
+    if (js.some((n) => !n.slash && Math.abs(n.stem.to - n.stem.from) < 35)) fail(`${where}: a beamed stem shorter than a flagged one`);
+  }
+  return { sizes: sizes.join(' '), flags: L.notes.reduce((a, n) => a + n.flags, 0), ...L };
+}
+const e = (midi, more) => q(midi, 0.5, more), rest = (dur) => ({ rest: true, dur });
+const SCALE = [60, 62, 64, 65, 67, 69, 71, 72, 74, 76];
+{
+  const grouped = (where, o, sizes, flags) => {
+    const b = beamGroups(where, o);
+    if (b.sizes !== sizes || b.flags !== flags) fail(`${where}: beams over ${b.sizes || 'nothing'} and ${b.flags} flags, expected ${sizes || 'nothing'} and ${flags}`);
+    return b;
+  };
+  grouped('4/4 eighths', { key: C, time: '4/4', beam: true, notes: SCALE.slice(0, 8).map((m) => e(m)) }, '2 2 2 2', 0);
+  grouped('4/4 eighths without beam', { key: C, time: '4/4', notes: SCALE.slice(0, 8).map((m) => e(m)) }, '', 8);
+  grouped('3/4 eighths', { key: C, time: '3/4', beam: true, notes: SCALE.slice(0, 6).map((m) => e(m)) }, '2 2 2', 0);
+  grouped('6/8 eighths', { key: C, time: '6/8', beam: true, notes: SCALE.slice(0, 6).map((m) => e(m)) }, '3 3', 0);
+  grouped('6/8 eee eee', { key: C, time: '6/8', beam: true, notes: [...SCALE.slice(0, 6), ...SCALE.slice(0, 6)].map((m) => e(m)) }, '3 3 3 3', 0);
+  grouped('no time: the beat is a quarter', { key: C, bars: 3, beam: true, notes: SCALE.slice(0, 6).map((m) => e(m)) }, '2 2 2', 0);
+  // a beat given with no time signature, as on a phone's second system of a 6/8 melody: in threes
+  grouped('no time, a dotted-quarter beat', { key: C, bars: 3, beat: 18, beam: true, notes: SCALE.slice(0, 6).map((m) => e(m)) }, '3 3', 0);
+  grouped('no time, a dotted-quarter beat: dotted quarter, three eighths', { key: C, bars: 3, beat: 18, beam: true, notes: [q(60, 1.5), e(62), e(64), e(65)] }, '3', 0);
+  grouped('a rest breaks the beam', { key: C, time: '4/4', beam: true, notes: [e(60), rest(0.5), e(62), e(64), q(65), q(67)] }, '2', 1);
+  grouped('6/8 a rest in the first beat', { key: C, time: '6/8', beam: true, notes: [e(60), e(62), rest(0.5), e(64), e(65), e(67)] }, '2 3', 0);
+  grouped('no beam across a beat', { key: C, time: '4/4', beam: true, notes: [q(60), e(62), e(64), e(65), e(67), q(69)] }, '2 2', 0);
+  grouped('off the beat: eighth, quarter, eighth', { key: C, time: '4/4', beam: true, notes: [e(60), q(62), e(64), q(65, 2)] }, '', 2);
+  grouped('dotted quarter and eighth', { key: C, time: '4/4', beam: true, notes: [q(60, 1.5), e(62), q(64, 2)] }, '', 1);
+  grouped('6/8 quarter and eighth', { key: C, time: '6/8', beam: true, notes: [q(60), e(62), e(64), q(65)] }, '', 2);
+  grouped('across a bar line', { key: C, time: '3/4', beam: true, notes: [q(60), q(62), e(64), e(65), e(67), e(69)] }, '2 2', 0);
+  const six = grouped('sixteenths', { key: C, time: '4/4', beam: true, notes: [0.25, 0.25, 0.25, 0.25, 0.5, 0.25, 0.25, 0.75, 0.25, 1].map((d, i) => q(SCALE[i], d)) }, '4 3 2', 0);
+  if (six.beams.length !== 4 + 2 + 2) fail(`sixteenths: ${six.beams.length} beams, expected 8 (a second beam per pair of sixteenths, a stub for the lone one)`);
+  const trip = grouped('triplet', { key: C, time: '4/4', beam: true, notes: [1 / 3, 1 / 3, 1 / 3, 1, 2].map((d, i) => q(SCALE[i], d)) }, '3', 0);
+  if (count(trip.ps.join(''), 'tuplet') !== 1) fail('a beamed triplet has no 3');
+  // stem direction: the note farthest from the middle line decides for the whole group
+  const ways = (where, midis, beam = true) => beamGroups(where, { key: C, time: '4/4', beam, notes: midis.map((m) => e(m)) }).notes.map((n) => (n.stem.x > n.x ? 'up' : 'down')).join(' ');
+  for (const [midis, want, why] of [[[64, 65], 'up up', 'low'], [[72, 74], 'down down', 'high'], [[64, 79], 'down down', 'G5 farther than E4'], [[62, 77], 'up up', 'D4 farther than F5'], [[71, 71], 'down down', 'on the middle line']]) {
+    const got = ways(`stems ${midis}`, midis);
+    if (got !== want) fail(`beamed ${midis} (${why}): stems ${got}, expected ${want}`);
+  }
+  if (ways('unbeamed 64 79', [64, 79], false) !== 'up down') fail('without beams each note keeps its own stem direction');
+}
+// time signatures in every clef, after the widest signatures, before the notes, with their bar lines
+const SEVEN = [C, { tonic: 6, mode: 'lydian' }, { tonic: 3, mode: 'phrygian' }]; // none, seven sharps, seven flats
+for (const clef of ['treble', 'treble8', 'bass']) for (const key of SEVEN) for (const time of ['4/4', '3/4', '6/8']) {
+  const [num, den] = time.split('/'), dur = 4 / den, base = { treble: 67, treble8: 55, bass: 48 }[clef];
+  const where = `${time} in ${clef}, ${TL.keyName(key.tonic, key.mode)}`;
+  const svg = render(where, { key, clef, time, beam: true, notes: Array.from({ length: num * 2 }, (_, i) => q(base + [0, 2, 4, 5][i % 4], dur)) });
+  if (!svg) continue;
+  const L = look(svg), [hi, lo] = L.time;
+  if (L.time.length !== 2 || hi.s !== num || lo.s !== den) { fail(`${where}: time signature ${L.time.map((t) => t.s).join('/')}`); continue; }
+  if (hi.x !== lo.x || hi.y !== L.lines[2] || lo.y !== L.lines[4]) fail(`${where}: the numbers do not stand on the middle and bottom lines, one over the other`);
+  const sigXs = tr(svg, 'sig').map(([x]) => x), clefRight = 8 + (clef === 'bass' ? 8 + 21 : 16 + 15);
+  if (hi.x - 9 < (sigXs.length ? Math.max(...sigXs) + 5.5 : clefRight) + 2) fail(`${where}: the time signature runs into the ${sigXs.length ? 'signature' : 'clef'}`);
+  const first = L.notes[0], left = Math.min(...[...first.part.matchAll(/translate\(([-\d.]+) /g)].map((m) => +m[1])) - 6.5;
+  if (left < hi.x + 9 + 2) fail(`${where}: the first note runs into the time signature`);
+  if (L.bars.length !== 2) fail(`${where}: ${L.bars.length} bar lines for two bars`);
+  if (clef === 'treble8' && count(svg, 'clef8') !== 1) fail(`${where}: the clef lost its 8`);
+}
+if (look(render('12/8', { key: C, time: '12/8', beam: true, notes: Array.from({ length: 12 }, (_, i) => e(SCALE[i % 8])) })).beams.length !== 4) fail('12/8: eighths beam in threes');
+// slashes: the rhythm on the middle line, no pitch, no accidental; stems and beams as for the value
+{
+  const slashes = [{ slash: true, dur: 1 }, { slash: true, dur: 0.5 }, { slash: true, dur: 0.5 }, { slash: true, dur: 2 }];
+  for (const clef of ['treble', 'treble8', 'bass', 'auto']) {
+    const where = 'slashes in ' + clef, b = beamGroups(where, { key: { tonic: 2, mode: 'major' }, clef, time: '4/4', beam: true, notes: slashes });
+    if (b.notes.length !== 4 || b.notes.some((n) => !n.slash)) { fail(`${where}: ${b.notes.length} slash notes`); continue; }
+    if (b.notes.some((n) => n.ys.length !== 1 || n.ys[0] !== b.lines[2])) fail(`${where}: a slash off the middle line`);
+    if (b.sizes !== '2' || b.notes.some((n) => !n.stem || n.stem.x < n.x)) fail(`${where}: beams over ${b.sizes}; slash stems should go up, the eighths beamed`);
+    const all = b.ps.join('');
+    if (count(all, 'ledger') || count(all, 'acc')) fail(`${where}: a slash has a ledger line or an accidental`);
+    if ((all.match(/Z" stroke="none"/g) || []).length !== 3 || (all.match(/Z" fill="none"/g) || []).length !== 1) fail(`${where}: quarters and eighths need filled slashes, a half an open one`);
+  }
+  if (!/<g class="clef" transform="translate\(24 /.test(render('auto, slashes only', { clef: 'auto', key: C, notes: slashes }))) fail('auto clef: slashes alone should read treble');
+  if (!/<g class="clef" transform="translate\(16 /.test(render('auto, slashes and low notes', { clef: 'auto', key: C, notes: [q(40), q(43), ...slashes] }))) fail('auto clef: a slash should not pull the clef');
+  if (count(render('slash between sharps', { key: C, time: '4/4', notes: [q(66), { slash: true, dur: 1 }, q(66), q(60)] }), 'acc') !== 1) fail('a slash between two F♯ in a bar: the second needs no sharp');
+  const mixed = beamGroups('a slash beamed with a named note', { key: C, time: '4/4', beam: true, notes: [e(74), { slash: true, dur: 0.5 }, q(60, 3)] });
+  if (mixed.sizes !== '2' || mixed.notes.slice(0, 2).some((n) => n.stem.x > n.x)) fail('a slash beamed with D5 should follow its stem down');
+  const dotted = render('dotted slash', { key: C, notes: [{ slash: true, dur: 1.5 }, { slash: true, dur: 3 }, { slash: true, dur: 4 }] });
+  if ((dotted.match(/r="2\.1"/g) || []).length !== 2 || look(dotted).notes[2].stem) fail('dotted slashes need a dot each, a whole slash no stem');
+}
+// blanks: an empty beat is a dashed box over its room, with no head, and counts toward the bar
+{
+  const svg = render('blanks', { key: C, time: '4/4', beam: true, notes: [q(60), { blank: true, dur: 1 }, { blank: true, dur: 1 }, { blank: true, dur: 1 }, { blank: true, dur: 1.5 }, e(62), q(64, 2)] });
+  const L = look(svg), boxes = L.ps.filter((p) => p.startsWith('<g class="blank"'));
+  if (boxes.length !== 4 || boxes.some((p) => p.includes('class="head"') || !p.includes('stroke-dasharray'))) fail(`blanks: ${boxes.length} dashed boxes with no head, expected 4`);
+  const rooms = boxes.map((p) => { const [, x, w] = /<rect x="([-\d.]+)" y="[-\d.]+" width="([-\d.]+)"/.exec(p).map(Number); return [x, x + w]; });
+  if (rooms.some(([a, b]) => b - a < 15) || rooms.some(([a], k) => k && a <= rooms[k - 1][1])) fail('blanks: boxes too narrow or overlapping');
+  if (rooms[0][0] < L.notes[0].x + 6.3 || L.bars.length !== 2 || !(rooms[2][1] < L.bars[0] && L.bars[0] < rooms[3][0])) fail('blanks: the boxes are not in their beats, or the bar lines are wrong');
+  if (L.notes.length !== 3 || count(svg, 'rest')) fail('blanks: drawn as notes or rests');
+}
+// wrong lengths: a rule under each, all on one line below everything else, above the names
+{
+  const notes = [q(60, 1, { under: true }), e(62), e(64, { under: true }), rest(1), q(79, 1, { under: true }), q(57), { ...rest(1), under: true }, q(60, 2)];
+  const lyrics = notes.map((n) => (n.rest ? '' : 'Do'));
+  for (const clef of ['treble', 'bass']) {
+    const where = 'under in ' + clef, svg = render(where, { key: C, clef, time: '4/4', beam: true, notes, lyrics });
+    if (!svg) continue;
+    const L = look(svg), y = L.rules.length && L.rules[0].y;
+    if (L.rules.length !== 4 || L.rules.some((r) => r.y !== y)) { fail(`${where}: ${L.rules.length} rules, expected 4 on one line`); continue; }
+    const lowest = Math.max(L.lines[4], ...L.notes.flatMap((n) => [...n.ys.map((v) => v + 4.4), n.stem ? Math.max(n.stem.from, n.stem.to) : 0]), ...L.beams.map((b) => b.y + 5));
+    if (y < lowest + 3) fail(`${where}: the rule at ${y} touches what is drawn above it (down to ${lowest})`);
+    const names = [...svg.matchAll(/<text class="lyric" x="[-\d.]+" y="([-\d.]+)"/g)].map((m) => +m[1]);
+    if (names.some((n) => n - 14 < y + 1)) fail(`${where}: the rule runs into the names`);
+    const ruled = L.notes.filter((n) => n.part.includes('class="under"'));
+    if (ruled.length !== 3 || ruled.some((n) => !L.rules.some((r) => r.from < n.x && n.x < r.to))) fail(`${where}: a rule is not under its note`);
+    if (/class="under"[^>]*(?:stroke|style)=/.test(svg)) fail(`${where}: the rule carries its own colour; the page's CSS gives it`);
+  }
+  if (count(render('under off', { key: C, notes: notes.map((n) => ({ ...n, under: false })), lyrics }), 'under')) fail('rules drawn with under: false');
+}
+// a bare rhythm: no time signature and no bar lines, the same notes, centred in its width
+for (const [c, cell] of Object.entries(TL.RCELLS)) for (const width of [60, 240]) {
+  const meter = TL.cellLen(c) % 12 === 0 ? '4/4' : '6/8', [barTicks, beat] = TL.METERS[meter];
+  const r = { cells: [c], ticks: cell.ticks, meter, bars: 1, barTicks, beat }, where = `bare ${c} at ${width}`;
+  let full, bare;
+  try { full = N.rhythm({ rhythm: r, width }); bare = N.rhythm({ rhythm: r, width, bare: true }); } catch (err) { fail(where + ' threw ' + err.stack); continue; }
+  rhythms++;
+  wellFormed(bare, where);
+  if (count(bare, 'time') || count(bare, 'bar')) fail(`${where}: a time signature or bar line`);
+  for (const cls of ['note', 'head', 'rest', 'beam', 'tie', 'tuplet']) if (count(bare, cls) !== count(full, cls)) fail(`${where}: ${count(bare, cls)} ${cls} for ${count(full, cls)}`);
+  const W = +/viewBox="0 0 ([\d.]+)/.exec(bare)[1], xs = [...bare.matchAll(/<g class="(?:head|rest)"(?: transform="translate\(|><g transform="translate\()([-\d.]+) /g)].map((m) => +m[1]);
+  if (Math.abs((Math.min(...xs) + Math.max(...xs)) / 2 - W / 2) > 0.5) fail(`${where}: not centred (${Math.min(...xs)}..${Math.max(...xs)} in ${W})`);
+}
+if (N.rhythm({ rhythm: { ticks: [], meter: '4/4' }, bare: true }).includes('NaN')) fail('an empty bare rhythm');
+// every new option is off unless asked for; a staff used as a control draws as before too
+{
+  const o = { key: { tonic: 7, mode: 'major' }, clef: 'treble', bars: 4, notes: [q(67, 0.5), q(71, 0.5), q(74), { rest: true, dur: 1 }, q(66, 1.5), q(67, 0.5), q(79, 4)] };
+  if (N.staff({ ...o, time: '', beam: false }) !== N.staff(o)) fail('time "" or beam: false changes the drawing');
+  const r = { ticks: [6, 6, 12, -12, 18, 6], meter: '4/4', barTicks: 48, beat: 12 };
+  if (N.rhythm({ rhythm: r, bare: false }) !== N.rhythm({ rhythm: r })) fail('bare: false changes the rhythm');
+  render('grid', { key: { tonic: 2, mode: 'dorian' }, clef: 'treble', grid: true, width: 320, notes: [0, 2, 3, 5, 7, 9, 10, 12].map((s) => q(62 + s)), lyrics: ['Do', 'Re', 'Me', 'Fa', 'Sol', 'La', 'Te', 'Do'] });
+  render('compact grid', { key: { tonic: 10, mode: 'minor' }, clef: 'bass', grid: true, compact: true, width: 260, notes: [q(46), q(48), q(49)] });
+}
+console.log(mainN ? `${compared} drawings without the new options are the same as the code on main draws` : 'note: no git main branch here, so the drawings were not compared with it');
 console.log(`${staves} staves and ${rhythms} rhythms rendered`);
 console.log(bad ? `${bad} problems` : 'notation OK');
 process.exitCode = bad ? 1 : 0;

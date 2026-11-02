@@ -2,7 +2,8 @@
 // Twelve weeks of made-up practice, for the week-by-week charts: every track, a few days off and a
 // week away, answer times kept only for the last seven weeks (as for someone who updated then),
 // intonation on Sing and Sight-Singing, level-ups in Intervals and Sing (the last one in the last
-// seven days, with a worse week after it), and Chord Qualities finished in the last seven days.
+// seven days, with a worse week after it), Chord Qualities finished in the last seven days, and Full
+// Dictation from the fifth week, about ten questions a week (its own minimum is 8).
 // The numbers come from the day, not from chance, so every run builds the same save. The save has
 // no format number, so a copy of any format loads it.
 //   weeksFixture(now, dayKey) → a saved state, for S.parseBackup
@@ -33,6 +34,8 @@ module.exports = function weeksFixture(now, dayKey) {
     // Melody and Rhythm: accuracy only
     if (back % 3 === 2) add('melody', 7, 0.6 + 0.01 * w);
     if (back % 5 !== 3) add('rhythm', 4, 0.8);
+    // Full Dictation: a question's accuracy is its notes' scores, so not a round number
+    if (w >= 4 && back % 2 === 0) add('dictation', 3, 0.66 + 0.02 * (w - 4));
     // Sing: graded answers most days; a new level three days ago and a worse last week
     if (back % 3 !== 1) {
       add('sing', 5, w === 11 ? 0.78 : 0.7 + 0.02 * w);

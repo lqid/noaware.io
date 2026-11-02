@@ -5,7 +5,7 @@ import { MIC, micAvailable, micGate, micListen, micPref, micQuestion, micRelease
 import { FREE_COUNT, reviewable, savePlanNow } from './plan.js';
 import { rhythmEvents, rhythmListen } from './rhythm.js';
 import { go, render } from './router.js';
-import { renderSession, renderStage } from './session-view.js';
+import { hearingsText, renderSession, renderStage, replayInner } from './session-view.js';
 
   // ======================================================================
   // SESSION RUNNER
@@ -142,7 +142,8 @@ import { renderSession, renderStage } from './session-view.js';
     const mode = tr.modeOf ? tr.modeOf(L) : 'major';
     const findDo = trackId === 'sing' && lv.type === 'degree' && lv.items.length === 1;
     // Find Do moves to a new key every question (the one held from the intro is kept)
-    const fade = t.window.length >= 10; // drop the "top note of the last chord" hint once the window is half full
+    // drop the "top note of the last chord" hint, and Full Dictation's clicks, once the window is half full
+    const fade = t.window.length >= (tr.window || 20) / 2;
     // a level that hides the key must not open in the key its introduction just named and played
     const hidesKey = lv.key === 'hidden' || (lv.key === 'fade' && fade);
     if (lv.keyEach && hidesKey && R.key && R.key.held !== undefined && S.settings.keyMode !== 'fixed') delete R.key.held;
@@ -175,6 +176,9 @@ import { renderSession, renderStage } from './session-view.js';
     R.levelUpNow = null;
     R.singMissed = false;
     R.rPhase = null; R.rResult = null; R.rScored = false; R.taps = []; R.staffAlt = false;
+    // Full Dictation: the entry being written, and how many times the melody has played
+    R.dict = q.kind === 'dictation' ? { entry: TL.Dict.empty(q), step: 'rhythm', at: 0, ni: 0, switched: false } : null;
+    R.heard = 0;
     if (micQuestion(q)) micListen(q); else if (A.micOn && !cl) micRelease();
     R.clap = q.kind === 'tap' && cl && A.micOn && !R.micSkip ? { qid: q.id, on: false, floor: 0, leak: 0, last: -1, n: 0 } : null;
     renderSession();
@@ -198,6 +202,7 @@ import { renderSession, renderStage } from './session-view.js';
       if (R.mic.state !== 'listening') { R.mic.state = 'listening'; renderStage(); }
     }
     setListening(true);
+    if (q.hearings && R.phase === 'answering' && (part === 'main' || part === 'melody')) countHearing(q);
     const h = A.play(evs, { timbre: q.timbre, lead, onEvent: (ev, i) => litEvent(q, ev, i, revealing) });
     if (part === 'main' && R.phase === 'answering') R.replays++;
     const id = q.id;
@@ -215,6 +220,15 @@ import { renderSession, renderStage } from './session-view.js';
       }
     });
     return h;
+  }
+  // Full Dictation: each time the melody plays while answering is a hearing, the first one too. One
+  // past the level's hearings makes the round practice; the two buttons that play it say so.
+  function countHearing(q) {
+    if (R.heard >= q.hearings && !q.practice) { q.practice = true; toast('This round is now practice: it counts toward today, not toward the next level.', 3600); }
+    R.heard++;
+    const el = $('#hearings');
+    if (el) el.textContent = hearingsText(q);
+    if (R.heard === q.hearings) $$('.q-replays [data-part="main"], .q-replays [data-part="melody"]').forEach((b) => { b.innerHTML = replayInner(q, q.replays.find((r) => r.part === b.dataset.part)); });
   }
   // While the mic listens, the app's own sound is "Playing", so the pill never reads as "I hear you".
   function pillLabel(on) {
@@ -239,7 +253,7 @@ import { renderSession, renderStage } from './session-view.js';
     if (!revealing) return;
     if (q.kind === 'sing') flash($(`.pattern span[data-i="${q.staff ? ev.staffIdx : i}"]`), ms);
     if (ev.deg && ev.notes && q.tonic != null) {
-      const s = ev.notes[0] - (q.kind === 'sing' ? CUR.voiceTonic(q.tonic, S.settings.voice) : q.tonic);
+      const s = ev.notes[0] - (q.kind === 'sing' ? CUR.voiceTonic(q.tonic, S.settings.voice) : q.tonic + (q.oct || 0)); // a dictation's melody sounds an octave up when oct says so
       let key = TL.mod12(s);
       if (key === 0 && s > 0 && $('.ladder .rung[data-semi="12"]')) key = 12;
       flash($(`.ladder .rung[data-semi="${key}"]`), ms);
@@ -249,19 +263,20 @@ import { renderSession, renderStage } from './session-view.js';
   }
 
   // Score one question and advance the learning engine. Practice rounds count toward the set and the day only.
-  // early: answered while the question's sound was still playing
-  function commit(q, results, rt, confusions, early = false) {
+  // early: answered while the question's sound was still playing. scores: what the level's window and
+  // the day's accuracy count, when that is not the results (Full Dictation scores each note)
+  function commit(q, results, rt, confusions, early = false, { scores } = {}) {
     const b = block();
     const scored = !q.pooled && !q.practice;
     b.played = true;
-    S.record({ track: q.track, level: scored ? q.level : -1, items: q.stats, results, rt, confusions, practice: !!q.practice, early });
+    S.record({ track: q.track, level: scored ? q.level : -1, items: q.stats, results, scores, rt, confusions, practice: !!q.practice, early });
     // the first answer ends onboarding; a newcomer never needs the 'updated' notice
     if (!S.state.onboarded) { S.state.onboarded = true; S.state.seen.v2 = true; }
     b.done++;
     savePlanNow();
     R.answered++;
     if (!q.practice) {
-      const sc = avg(results);
+      const sc = avg(scores || results);
       b.score += sc; b.sn++;
       R.score += sc; R.sn++;
       q.stats.forEach((it, i) => {
@@ -273,8 +288,10 @@ import { renderSession, renderStage } from './session-view.js';
     const rec = R.recent[q.track] || (R.recent[q.track] = []);
     rec.push(q.item ?? q.stats[0]);
     if (rec.length > 6) rec.shift();
+    // the time since the last answer, less a walk away from the screen: a minute at most, or four for
+    // Full Dictation, whose answer takes up to four hearings of a melody, then its rhythm and names
     const now = performance.now();
-    S.addTime(Math.min(60, (now - R.lastActive) / 1000));
+    S.addTime(Math.min(q.track === 'dictation' ? 240 : 60, (now - R.lastActive) / 1000));
     R.lastActive = now;
     if (scored && q.level === S.track(q.track).level) {
       const before = q.level;
